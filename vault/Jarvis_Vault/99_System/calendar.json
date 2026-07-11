@@ -1,0 +1,8 @@
+[
+  { "time": "09:00", "title": "Standup — Fleet team", "where": "Meet" },
+  { "time": "10:30", "title": "1:1 with Priya", "where": "Room 3", "live": true },
+  { "time": "12:00", "title": "Lunch — Marcus", "where": "Onsite" },
+  { "time": "14:00", "title": "Northwind diligence review", "where": "Zoom" },
+  { "time": "16:30", "title": "Deep work — memo", "where": "Blocked" },
+  { "time": "18:00", "title": "Board dinner", "where": "SoHo" }
+]

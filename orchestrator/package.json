@@ -1,0 +1,19 @@
+{
+  "name": "jarvis-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WebSocket hub, 3-tier intent router, and headless Claude Code / skill execution wrapper",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

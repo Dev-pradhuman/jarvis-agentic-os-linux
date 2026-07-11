@@ -1,0 +1,13 @@
+{
+  "name": "jarvis-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Agentic OS dashboard — graphical + vocal layer over Claude Code",
+  "scripts": {
+    "dev:orchestrator": "npm --prefix orchestrator run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "install:all": "npm --prefix orchestrator install && npm --prefix frontend install",
+    "ml:stt": "python ml/stt_service.py",
+    "ml:tts": "python ml/tts_service.py"
+  }
+}

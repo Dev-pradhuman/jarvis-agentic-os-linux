@@ -1,0 +1,32 @@
+# Node
+node_modules/
+dist/
+.vite/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+ml/models/
+*.onnx
+
+# Env
+.env
+.env.local
+
+# Runtime scratch
+orchestrator/temp/*.json
+!orchestrator/temp/.gitkeep
+
+# ML voices / weights (large, fetched separately)
+ml/voices/
+ml/*.bin
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Working screenshots / automation scratch (keep docs/ hero image)
+/jarvis-*.png
+.playwright-mcp/
