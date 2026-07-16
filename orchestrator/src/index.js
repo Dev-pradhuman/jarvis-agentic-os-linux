@@ -10,19 +10,36 @@
  */
 
 import 'dotenv/config';
+import fs from 'node:fs';
 import http from 'node:http';
 import cors from 'cors';
 import express from 'express';
 import { Server } from 'socket.io';
 
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+  fs.writeFileSync('crash.log', String(err.stack || err) + '\n', { flag: 'a' });
+});
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+  fs.writeFileSync('crash.log', String(err.stack || err) + '\n', { flag: 'a' });
+});
+
 import { route } from './router.js';
 import { runSkill } from './skillRunner.js';
 import { SKILLS, UI_INTENTS } from './skills.js';
 import { getState, recordTokens, sampleTokens } from './state.js';
-import { getCli, getRegistry } from './cli.js';
+import { getCli, getRegistry, getCliCommand, getCliCommands, setCliCommand } from './cli.js';
+import { spawn } from 'node:child_process';
 import { killProcessTree, runCli } from './cliRunner.js';
 import { addProvider, API_TYPES, listProviders, modelsForProvider, removeProvider, runApiChat, updateProvider } from './providers.js';
-import { addMcp, listMcp, mcpCatalog, removeMcp, setEnabled, syncAll } from './mcp.js';
+import { addMcp, listMcp, mcpCatalog, removeMcp, setEnabled as setMcpEnabled, syncAll } from './mcp.js';
+import { listPlugins, addPlugin, removePlugin, setEnabled as setPluginEnabled } from './plugins.js';
+import { listClaudePlugins, activateClaudePlugin, deactivateClaudePlugin, toggleClaudePlugin } from './claudePlugins.js';
+import { getRoles, setRole } from './roles.js';
+import { isRuflowEnabled, setRuflowEnabled, getRuflowState, writeMemoryBank } from './ruflow.js';
+import { seedBest, seedExtras, getCatalog } from './catalog.js';
+import { enhancePrompt } from './promptEnhancer.js';
 import { appendChat, appendNote, ensureBrain, generateAllSubBrains, getContext, listChats, listFolders, ROOT, searchBrain, VAULT_PATH } from './brain.js';
 import { deleteSkill, isSkillEnabled, listSkills, readSkill, saveSkill, setSkillEnabled } from './skillsManager.js';
 import { getUsage } from './usage.js';
@@ -110,6 +127,35 @@ function stopAll() {
   return n;
 }
 
+/**
+ * Open a REAL, visible terminal window running `command`, kept open afterwards so
+ * interactive flows (e.g. `codex login`, a CLI's device-auth prompt) work — the
+ * captured-pipe chat path can't do that. Runs in the selected project folder.
+ * Windows: `cmd /c start "<title>" cmd /k "<command>"`. POSIX best-effort fallback.
+ */
+function openTerminal(command, cwd, title = 'Jarvis') {
+  if (!command || !command.trim()) throw new Error('empty command');
+  if (process.platform === 'win32') {
+    const child = spawn('cmd.exe', ['/c', 'start', title, 'cmd', '/k', command], {
+      cwd,
+      windowsHide: false,
+      detached: true,
+    });
+    child.on('error', () => {});
+    child.unref();
+  } else {
+    // Best-effort: try a few common terminals, then fall back to a detached shell.
+    const term = process.env.TERMINAL || 'x-terminal-emulator';
+    try {
+      const child = spawn(term, ['-e', `bash -lc '${command}; exec bash'`], { cwd, detached: true });
+      child.on('error', () => {});
+      child.unref();
+    } catch {
+      spawn('bash', ['-lc', command], { cwd, detached: true }).unref();
+    }
+  }
+}
+
 const TRANSIENT_RE = /timeout|econnreset|socket hang|network|temporarily|rate.?limit|\b429\b|\b5\d\d\b/i;
 
 /** Run a CLI, registering its child for Stop, and retry once on a transient error. */
@@ -177,6 +223,14 @@ async function executeSkill(skill, parameters) {
   });
   io.emit('state_update', getState(running));
   io.emit('usage_update', getUsage(running));
+
+  const reqRegex = /```jarvis:request-resource\s+({[\s\S]*?})\s+```/g;
+  let match;
+  while ((match = reqRegex.exec(result.output)) !== null) {
+    try {
+      io.emit('resource_requested', JSON.parse(match[1]));
+    } catch (e) {}
+  }
 }
 
 io.on('connection', (socket) => {
@@ -192,19 +246,163 @@ io.on('connection', (socket) => {
 
   // ── Skills dashboard — CRUD over the real SOP files on disk. A disabled skill
   // is refused at execution time, so the toggle genuinely stops it running. ──
-  socket.on('skills_request', () => socket.emit('skills_list', listSkills()));
+  socket.on('skills_request', ({ folder } = {}) => socket.emit('skills_list', listSkills(folder)));
   socket.on('skill_read', ({ id }) => socket.emit('skill_content', { id, content: readSkill(id) }));
-  socket.on('skill_toggle', ({ id, enabled }) => {
-    setSkillEnabled(id, enabled);
-    io.emit('skills_list', listSkills());
+  socket.on('skill_toggle', ({ id, enabled, folder }) => {
+    setSkillEnabled(id, enabled, folder);
+    io.emit('skills_list', listSkills(folder));
   });
-  socket.on('skill_save', ({ id, content }) => {
-    saveSkill(id, content);
-    io.emit('skills_list', listSkills());
+  socket.on('skill_save', ({ id, content, folder }) => {
+    saveSkill(id, content, folder);
+    io.emit('skills_list', listSkills(folder));
   });
-  socket.on('skill_delete', ({ id }) => {
-    deleteSkill(id);
-    io.emit('skills_list', listSkills());
+  socket.on('skill_delete', ({ id, folder }) => {
+    deleteSkill(id, folder);
+    io.emit('skills_list', listSkills(folder));
+  });
+
+  socket.on('enhance_prompt', async ({ reqId, cliId, folder, prompt }) => {
+    const result = await enhancePrompt({ raw: prompt, cliId, folder, brainContext: getContext(folder) });
+    socket.emit('prompt_enhanced', { reqId, result });
+  });
+
+  socket.on('get_roles', ({ folder } = {}) => {
+    try {
+      socket.emit('roles_state', {
+        roles: getRoles(folder),
+        registry: getRegistry(),
+        providers: listProviders()
+      });
+    } catch (e) {
+      console.error('[roles] get_roles error', e);
+    }
+  });
+
+  socket.on('set_role', ({ role, config, folder }) => {
+    try {
+      setRole(role, config, folder);
+      io.emit('roles_updated', {
+        roles: getRoles(folder),
+        registry: getRegistry(),
+        providers: listProviders(),
+        folder
+      });
+    } catch (e) {
+      socket.emit('roles_error', { error: e.message });
+    }
+  });
+
+  socket.on('clear_roles_override', ({ folder }) => {
+    import('node:fs').then(fs => {
+      import('node:path').then(path => {
+        try {
+          if (!folder) return;
+          const file = path.join(process.env.JARVIS_PROJECTS_ROOT || 'C:\\Users\\Pradhuman\\projects', '.jarvis-brain', 'folders', folder, 'roles.json');
+          if (fs.existsSync(file)) fs.unlinkSync(file);
+          io.emit('roles_updated', {
+            roles: getRoles(folder),
+            registry: getRegistry(),
+            providers: listProviders(),
+            folder
+          });
+        } catch(e) {
+          console.error('[roles] clear_roles_override error', e);
+        }
+      }).catch(e => console.error(e));
+    }).catch(e => console.error(e));
+  });
+
+  // ── Curated "best of" catalog — one-click seed the top MCPs + skills. ──
+  socket.on('catalog_get', () => socket.emit('catalog_list', getCatalog()));
+  socket.on('seed_best', ({ folder, extras } = {}) => {
+    const base = seedBest(folder);
+    const ex = extras === false ? { mcps: 0, skills: 0 } : seedExtras(folder);
+    const counts = { mcps: base.mcps + ex.mcps, skills: base.skills + ex.skills };
+    io.emit('mcp_list', listMcp(folder));
+    io.emit('skills_list', listSkills(folder));
+    socket.emit('seed_best_done', counts);
+    io.emit('terminal_log', `[jarvis] seeded ${counts.mcps} MCPs + ${counts.skills} skills → ${folder || 'all projects'}\n`);
+  });
+
+  // ── Ruflow — token-lean mode + per-project memory bank. ──
+  socket.on('ruflow_get', ({ folder } = {}) => socket.emit('ruflow_state', getRuflowState(folder)));
+  socket.on('ruflow_set', ({ enabled, folder } = {}) => {
+    const state = setRuflowEnabled(enabled, folder);
+    io.emit('ruflow_state', state);
+    io.emit('terminal_log', `[jarvis] ruflow ${enabled ? 'ON' : 'off'} for ${folder || 'all projects'}\n`);
+  });
+  socket.on('ruflow_memory_save', ({ folder, section, content } = {}) => {
+    try {
+      socket.emit('ruflow_state', writeMemoryBank(folder, section, content));
+    } catch (e) {
+      socket.emit('ruflow_error', { error: e.message });
+    }
+  });
+
+  // ── One-click CLI terminal commands (editable per CLI). ──
+  socket.on('cli_commands_request', () => socket.emit('cli_commands', getCliCommands()));
+  socket.on('cli_command_set', ({ cliId, command }) => {
+    try {
+      const commands = setCliCommand(cliId, command);
+      io.emit('cli_commands', commands);
+      io.emit('cli_list', getRegistry()); // registry carries setupCmd too
+    } catch (e) {
+      socket.emit('cli_command_error', { error: e.message });
+    }
+  });
+  // Open a real console window running the CLI's command (or an explicit override).
+  socket.on('open_terminal', ({ cliId, command, folder } = {}) => {
+    try {
+      const cmd = (command && command.trim()) || getCliCommand(cliId);
+      if (!cmd) throw new Error(`no command for ${cliId}`);
+      const cwd = folder ? path.join(ROOT, folder) : ROOT;
+      openTerminal(cmd, cwd, cliId || 'Jarvis');
+      io.emit('terminal_log', `[jarvis] opened terminal → ${cmd}  (cwd: ${cwd})\n`);
+      socket.emit('terminal_opened', { cliId, command: cmd });
+    } catch (e) {
+      socket.emit('cli_command_error', { error: e.message });
+    }
+  });
+
+  socket.on('plugins_request', ({ folder } = {}) => socket.emit('plugins_list', listPlugins(folder)));
+  socket.on('plugin_add', ({ spec, folder }) => {
+    addPlugin(spec, folder);
+    io.emit('plugins_list', listPlugins(folder));
+  });
+  socket.on('plugin_remove', ({ id, folder }) => {
+    removePlugin(id, folder);
+    io.emit('plugins_list', listPlugins(folder));
+  });
+  socket.on('plugin_toggle', ({ id, enabled, folder }) => {
+    setPluginEnabled(id, enabled, folder);
+    io.emit('plugins_list', listPlugins(folder));
+  });
+
+  // ── Claude Code plugin parity — make CC plugins usable by every CLI + API. ──
+  socket.on('claude_plugins_request', ({ folder } = {}) => {
+    socket.emit('claude_plugins_list', { folder: folder || '', plugins: listClaudePlugins(folder) });
+  });
+  socket.on('claude_plugin_activate', ({ id, folder } = {}) => {
+    try {
+      const r = activateClaudePlugin(id, folder);
+      io.emit('claude_plugins_list', { folder: folder || '', plugins: listClaudePlugins(folder) });
+      io.emit('mcp_list', listMcp(folder));
+      io.emit('skills_list', listSkills(folder));
+      io.emit('terminal_log', `[jarvis] plugin '${id}' activated → +${r.added.mcps.length} MCP, +${r.added.skills.length} skills (all CLIs + APIs)\n`);
+    } catch (e) {
+      socket.emit('claude_plugin_error', { error: e.message });
+    }
+  });
+  socket.on('claude_plugin_deactivate', ({ id, folder } = {}) => {
+    const r = deactivateClaudePlugin(id, folder);
+    io.emit('claude_plugins_list', { folder: folder || '', plugins: listClaudePlugins(folder) });
+    io.emit('mcp_list', listMcp(folder));
+    io.emit('skills_list', listSkills(folder));
+    io.emit('terminal_log', `[jarvis] plugin '${id}' deactivated → -${r.removed.mcps} MCP, -${r.removed.skills} skills\n`);
+  });
+  socket.on('claude_plugin_toggle', ({ id, enabled, folder } = {}) => {
+    toggleClaudePlugin(id, enabled, folder);
+    io.emit('claude_plugins_list', { folder: folder || '', plugins: listClaudePlugins(folder) });
   });
 
   // ── Usage analytics — aggregated from the brain chat log + live telemetry. ──
@@ -238,22 +436,22 @@ io.on('connection', (socket) => {
 
   // ── MCP servers — import once, generate every CLI's native config, and bridge
   // tools into API providers at runtime. Shared by all agents. ──
-  socket.on('mcp_add', ({ name, command, args, env, url, transport }) => {
+  socket.on('mcp_add', ({ name, command, args, env, url, transport, folder }) => {
     try {
-      const result = addMcp({ name, command, args, env, url, transport });
-      io.emit('mcp_list', listMcp());
+      const result = addMcp({ name, command, args, env, url, transport }, folder);
+      io.emit('mcp_list', listMcp(folder));
       socket.emit('mcp_added', result);
     } catch (e) {
       socket.emit('mcp_error', { error: e.message });
     }
   });
-  socket.on('mcp_remove', ({ id }) => {
-    removeMcp(id);
-    io.emit('mcp_list', listMcp());
+  socket.on('mcp_remove', ({ id, folder }) => {
+    removeMcp(id, folder);
+    io.emit('mcp_list', listMcp(folder));
   });
-  socket.on('mcp_toggle', ({ id, enabled }) => {
-    setEnabled(id, enabled);
-    io.emit('mcp_list', listMcp());
+  socket.on('mcp_toggle', ({ id, enabled, folder }) => {
+    setMcpEnabled(id, enabled, folder);
+    io.emit('mcp_list', listMcp(folder));
   });
   socket.on('mcp_sync', () => socket.emit('mcp_synced', syncAll()));
 
@@ -295,7 +493,37 @@ io.on('connection', (socket) => {
 
   // ── Chat: dispatch to either a real CLI (spawn in the project folder) or a
   // custom API provider (OpenAI-compatible HTTP), both with the shared brain. ──
-  socket.on('chat_send', async ({ cliId, model, effort, folder, prompt }) => {
+  socket.on('chat_send', async ({ cliId, model, effort, folder, prompt, confirmedCoding }) => {
+    const roles = getRoles(folder);
+    const coderConfig = roles.coder;
+    const CODER_CLI = (coderConfig.kind === 'api' || coderConfig.kind === 'provider') 
+      ? `api:${coderConfig.id}` 
+      : coderConfig.id;
+
+    if (!confirmedCoding && cliId !== CODER_CLI) {
+      const decision = await route('chat:' + randomUUID(), prompt, folder);
+      if (decision && decision.isCodingTask) {
+        socket.emit('confirm_coder_switch', {
+          originalRequest: { cliId, model, effort, folder, prompt },
+          coderCli: CODER_CLI,
+          coderModel: coderConfig.model,
+          coderEffort: coderConfig.effort
+        });
+        return;
+      }
+    }
+
+    // Ruflow auto-routing: for simple, non-coding tasks, drop to low effort to save
+    // tokens. Complex/coding prompts keep the requested effort. Off unless ruflow is on.
+    if (isRuflowEnabled(folder) && effort && effort !== 'low') {
+      const heavy = prompt.length > 240 ||
+        /\b(refactor|implement|debug|build|architecture|migrate|fix|test|optimi[sz]e|design|analyze|review)\b/i.test(prompt);
+      if (!heavy) {
+        io.emit('terminal_log', `[jarvis] ruflow: '${effort}' → 'low' (simple task)\n`);
+        effort = 'low';
+      }
+    }
+
     const chatId = randomUUID();
     const startedAt = Date.now();
     const augmented = `${getContext(folder)}\n\nUser request:\n${prompt}`;
@@ -348,6 +576,14 @@ io.on('connection', (socket) => {
     io.emit('chat_done', entry);
     io.emit('state_update', getState(running));
     io.emit('usage_update', getUsage(running));
+
+    const reqRegex = /```jarvis:request-resource\s+({[\s\S]*?})\s+```/g;
+    let match;
+    while ((match = reqRegex.exec(result.output)) !== null) {
+      try {
+        io.emit('resource_requested', JSON.parse(match[1]));
+      } catch (e) {}
+    }
   });
 
   socket.on('chats_history', ({ folder } = {}) => {

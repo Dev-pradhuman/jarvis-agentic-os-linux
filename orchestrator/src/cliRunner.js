@@ -41,10 +41,21 @@ export function runCli(cli, model, effort, cwd, prompt, onChunk = () => {}, onCh
   // Inject an effort hint for CLIs without a native effort flag.
   const input = !cli.nativeEffort && effort ? `Reasoning effort: ${effort}.\n\n${prompt}` : prompt;
 
+  // Some CLIs (e.g. antigravity/agy) take the prompt as a trailing ARGUMENT instead
+  // of on stdin. Append it after the built flags and skip the stdin write.
+  const promptViaArg = !!cli.promptArg;
+  if (promptViaArg) args.push(input);
+
+  // shell:true is required on Windows for the npm `.cmd` shim CLIs, but it re-parses
+  // args through cmd.exe (which mangles a multi-line prompt argv). CLIs that pass the
+  // prompt as an arg opt out of the shell and spawn via their resolved .EXE path.
+  const useShell = cli.shell === false ? false : process.platform === 'win32';
+  const command = !useShell && cli.resolvedPath ? cli.resolvedPath : cli.cmd;
+
   return new Promise((resolve) => {
     let proc;
     try {
-      proc = spawn(cli.cmd, args, { cwd, shell: process.platform === 'win32' });
+      proc = spawn(command, args, { cwd, shell: useShell });
     } catch (e) {
       resolve({ status: 'error', code: -1, output: `spawn failed: ${e.message}` });
       return;
@@ -61,11 +72,15 @@ export function runCli(cli, model, effort, cwd, prompt, onChunk = () => {}, onCh
       }
     }, timeout);
 
-    try {
-      proc.stdin?.write(input);
-      proc.stdin?.end();
-    } catch {
-      /* stdin may be closed already */
+    if (!promptViaArg) {
+      try {
+        proc.stdin?.write(input);
+        proc.stdin?.end();
+      } catch {
+        /* stdin may be closed already */
+      }
+    } else {
+      try { proc.stdin?.end(); } catch { /* no stdin needed */ }
     }
 
     proc.stdout?.on('data', (d) => {

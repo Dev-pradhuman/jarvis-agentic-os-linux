@@ -6,6 +6,7 @@ import { extractSpokenSummary, speak } from '../lib/tts';
 const ORCHESTRATOR_URL = 'http://localhost:3030';
 
 let socket; // module singleton
+const pendingEnhancements = new Map();
 
 /**
  * Connects to the orchestrator and pipes WS events into the Zustand store.
@@ -60,6 +61,7 @@ export function useSocket() {
 
     // Multi-CLI chat + brain
     socket.on('cli_list', (clis) => setClis(clis));
+    socket.on('cli_commands', (commands) => useJarvisStore.getState().setCliCommands(commands || {}));
     socket.on('folders_list', (payload) => setFolders(payload));
     socket.on('chat_started', (meta) => startChatSession(meta));
     socket.on('chat_stream', ({ chatId, chunk }) => appendChatChunk(chatId, chunk));
@@ -101,6 +103,38 @@ export function useSocket() {
     socket.on('skills_list', (list) => setSkills(list));
     socket.on('skill_content', (payload) => setSkillContent(payload));
     socket.on('usage_update', (u) => setUsage(u));
+
+    // Prompt enhancement
+    socket.on('prompt_enhanced', ({ reqId, result }) => {
+      if (pendingEnhancements.has(reqId)) {
+        pendingEnhancements.get(reqId)(result);
+        pendingEnhancements.delete(reqId);
+      }
+    });
+
+    // Roles
+    const setRoles = useJarvisStore.getState().setRoles;
+    socket.on('roles_state', ({ roles }) => setRoles(roles));
+    socket.on('roles_updated', ({ roles }) => setRoles(roles));
+
+    // Ruflow (token-lean mode + memory bank)
+    socket.on('ruflow_state', (state) => useJarvisStore.getState().setRuflow(state));
+
+    // Plugins — custom Jarvis plugins + Claude Code plugin parity
+    socket.on('plugins_list', (list) => useJarvisStore.getState().setPlugins(list || []));
+    socket.on('claude_plugins_list', ({ plugins }) => useJarvisStore.getState().setClaudePlugins(plugins || []));
+
+    // Coder switch confirmation
+    socket.on('confirm_coder_switch', ({ originalRequest, coderCli }) => {
+      // We will handle this by showing a popup in the UI. For now, dispatch event or handle via state.
+      // Since useSocket is a hook, we can dispatch to window so the component can listen.
+      window.dispatchEvent(new CustomEvent('jarvis:coder_switch', { detail: { originalRequest, coderCli } }));
+    });
+
+    // Resource request
+    socket.on('resource_requested', (resource) => {
+      window.dispatchEvent(new CustomEvent('jarvis:resource_requested', { detail: resource }));
+    });
 
     return () => {
       socket.disconnect();
@@ -184,16 +218,16 @@ export function removeMcp(id) {
   socket?.emit('mcp_remove', { id });
 }
 
-export function toggleMcp(id, enabled) {
-  socket?.emit('mcp_toggle', { id, enabled });
+export function toggleMcp(id, enabled, folder) {
+  socket?.emit('mcp_toggle', { id, enabled, folder });
 }
 
 // ── Skills dashboard ──
-export function requestSkills() {
-  socket?.emit('skills_request');
+export function requestSkills(folder) {
+  socket?.emit('skills_request', { folder });
 }
-export function toggleSkill(id, enabled) {
-  socket?.emit('skill_toggle', { id, enabled });
+export function toggleSkill(id, enabled, folder) {
+  socket?.emit('skill_toggle', { id, enabled, folder });
 }
 export function readSkill(id) {
   socket?.emit('skill_read', { id });
@@ -201,8 +235,36 @@ export function readSkill(id) {
 export function saveSkill(id, content) {
   socket?.emit('skill_save', { id, content });
 }
-export function deleteSkill(id) {
-  socket?.emit('skill_delete', { id });
+export function deleteSkill(id, folder) {
+  socket?.emit('skill_delete', { id, folder });
+}
+
+// ── Plugins ──
+export function requestPlugins(folder) {
+  socket?.emit('plugins_request', { folder });
+}
+export function addPlugin(spec, folder) {
+  socket?.emit('plugin_add', { spec, folder });
+}
+export function removePlugin(id, folder) {
+  socket?.emit('plugin_remove', { id, folder });
+}
+export function togglePlugin(id, enabled, folder) {
+  socket?.emit('plugin_toggle', { id, enabled, folder });
+}
+
+// ── Claude Code plugin parity (usable by every CLI + API) ──
+export function requestClaudePlugins(folder = '') {
+  socket?.emit('claude_plugins_request', { folder });
+}
+export function activateClaudePlugin(id, folder = '') {
+  socket?.emit('claude_plugin_activate', { id, folder });
+}
+export function deactivateClaudePlugin(id, folder = '') {
+  socket?.emit('claude_plugin_deactivate', { id, folder });
+}
+export function toggleClaudePlugin(id, enabled, folder = '') {
+  socket?.emit('claude_plugin_toggle', { id, enabled, folder });
 }
 
 // ── Usage analytics ──
@@ -222,4 +284,56 @@ export function remember(folder, text) {
 }
 export function searchBrain(query) {
   socket?.emit('search', { query });
+}
+
+export function enhancePromptRequest(cliId, folder, prompt) {
+  return new Promise((resolve) => {
+    const reqId = Date.now().toString() + Math.random().toString();
+    pendingEnhancements.set(reqId, resolve);
+    socket?.emit('enhance_prompt', { reqId, cliId, folder, prompt });
+  });
+}
+
+// ── Curated best-of catalog ──
+export function requestCatalog() {
+  socket?.emit('catalog_get');
+}
+export function seedBest(folder = '') {
+  socket?.emit('seed_best', { folder });
+}
+
+// ── Ruflow — token-lean mode + per-project memory bank ──
+export function requestRuflow(folder = '') {
+  socket?.emit('ruflow_get', { folder });
+}
+export function setRuflow(enabled, folder = '') {
+  socket?.emit('ruflow_set', { enabled, folder });
+}
+export function saveRuflowMemory(folder, section, content) {
+  socket?.emit('ruflow_memory_save', { folder, section, content });
+}
+
+// ── One-click CLI terminal commands ──
+/** Fetch the merged { cliId: command } map. */
+export function requestCliCommands() {
+  socket?.emit('cli_commands_request');
+}
+/** Save (or reset, if command is empty) a CLI's terminal command. */
+export function setCliCommand(cliId, command) {
+  socket?.emit('cli_command_set', { cliId, command });
+}
+/** Open a real console window running the CLI's command (or an explicit override). */
+export function openTerminal(cliId, folder = '', command) {
+  socket?.emit('open_terminal', { cliId, folder, command });
+}
+
+// ── Roles ──
+export function requestRoles(folder) {
+  socket?.emit('get_roles', { folder });
+}
+export function setRoleConfig(role, config, folder) {
+  socket?.emit('set_role', { role, config, folder });
+}
+export function clearRolesOverride(folder) {
+  socket?.emit('clear_roles_override', { folder });
 }

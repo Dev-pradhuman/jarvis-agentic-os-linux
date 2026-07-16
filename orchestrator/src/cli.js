@@ -8,15 +8,23 @@
  */
 
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
-function isInstalled(cmd) {
+const PROJECTS_ROOT = process.env.JARVIS_PROJECTS_ROOT || 'C:\\Users\\Pradhuman\\projects';
+const COMMANDS_FILE = path.join(PROJECTS_ROOT, '.jarvis-brain', 'cli-commands.json');
+
+// Resolve a command to its absolute executable path. Returns '' if not found.
+// Needed for CLIs we must spawn WITHOUT a shell (see antigravity): a bare command
+// name only resolves via the shell's PATH lookup, so no-shell spawns need the path.
+function resolvePath(cmd) {
   try {
-    execSync(process.platform === 'win32' ? `where ${cmd}` : `command -v ${cmd}`, {
-      stdio: 'ignore',
+    const out = execSync(process.platform === 'win32' ? `where ${cmd}` : `command -v ${cmd}`, {
+      encoding: 'utf8',
     });
-    return true;
+    return out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || '';
   } catch {
-    return false;
+    return '';
   }
 }
 
@@ -31,6 +39,8 @@ const DEFS = {
     id: 'claude',
     label: 'Claude Code',
     cmd: 'claude',
+    // One-click terminal command (opens a real console; edit in the CLI Commands modal).
+    setupCmd: 'claude --dangerously-skip-permissions',
     nativeEffort: true,
     efforts: ['low', 'medium', 'high'],
     models: [
@@ -49,12 +59,12 @@ const DEFS = {
     id: 'opencode',
     label: 'OpenCode',
     cmd: 'opencode',
+    setupCmd: 'opencode auth login',
     nativeEffort: false,
     efforts: ['low', 'medium', 'high'],
+    // Model ids must match the user's opencode.json providers (provider/model).
     models: [
-      { id: 'opencode/claude-opus-4-8', label: 'Opus 4.8' },
-      { id: 'opencode/claude-haiku-4-5', label: 'Haiku 4.5' },
-      { id: 'opencode/big-pickle', label: 'Big Pickle' },
+      { id: 'openrouter/openai/gpt-4o-mini', label: 'GPT-4o mini (OpenRouter)' },
     ],
     // opencode `run` is already non-interactive/autonomous; permissions follow the
     // user's opencode config. Set `"permission": {"*": "allow"}` there to fully skip.
@@ -68,6 +78,7 @@ const DEFS = {
     id: 'gemini',
     label: 'Gemini CLI',
     cmd: 'gemini',
+    setupCmd: 'gemini',
     nativeEffort: false,
     efforts: ['low', 'medium', 'high'],
     models: [
@@ -86,6 +97,7 @@ const DEFS = {
     id: 'codex',
     label: 'Codex CLI',
     cmd: 'codex',
+    setupCmd: 'codex login',
     nativeEffort: true,
     efforts: ['low', 'medium', 'high'],
     models: [
@@ -101,42 +113,94 @@ const DEFS = {
       return args;
     },
   },
-  // Antigravity — command is `agy`. It appears to be interactive/GUI-oriented, so
-  // headless behavior is best-effort with a short timeout; adjust `build` once its
-  // non-interactive syntax is known. `dangerousArgs` left empty (flag unknown).
+  // Antigravity — command is `agy`. Its headless flag `-p/--print` takes the prompt
+  // as an ARGUMENT (not stdin): `agy -p "<prompt>"`. So it sets `promptArg` (the
+  // runner appends the prompt after these flags and skips stdin) and `shell: false`
+  // (spawned via its resolved .EXE path, so a multi-line prompt argv isn't mangled
+  // by cmd.exe). `-p` must be the LAST flag so the prompt lands as its value.
   antigravity: {
     id: 'antigravity',
     label: 'Antigravity (agy)',
     cmd: 'agy',
+    setupCmd: 'agy',
     nativeEffort: false,
+    promptArg: true,
+    shell: false,
     efforts: ['low', 'medium', 'high'],
-    timeoutMs: 45000,
+    timeoutMs: 120000,
     models: [{ id: '', label: 'default' }],
-    build(/* model, effort */) {
-      return ['-p'];
+    build(model /*, effort */) {
+      const args = ['--dangerously-skip-permissions'];
+      if (model) args.push('--model', model);
+      args.push('-p'); // prompt is appended right after by the runner
+      return args;
     },
   },
 };
 
-// Detect availability once at startup.
+// Detect availability + resolve executable paths once at startup.
 const AVAILABILITY = Object.fromEntries(
-  Object.values(DEFS).map((d) => [d.id, isInstalled(d.cmd)]),
+  Object.values(DEFS).map((d) => [d.id, resolvePath(d.cmd)]),
 );
+function isAvailable(id) {
+  return !!AVAILABILITY[id];
+}
+
+// ── One-click terminal commands ────────────────────────────────────────────
+// Each CLI ships a default `setupCmd` (login / launch). The user can override it
+// per CLI; overrides persist to .jarvis-brain/cli-commands.json. The frontend
+// opens a REAL console window running the resolved command (for interactive
+// logins the captured-pipe chat path can't do).
+
+function readSavedCommands() {
+  try {
+    if (fs.existsSync(COMMANDS_FILE)) return JSON.parse(fs.readFileSync(COMMANDS_FILE, 'utf8')) || {};
+  } catch { /* corrupt/missing — fall back to defaults */ }
+  return {};
+}
+
+/** Merged map { cliId: command } — saved overrides on top of each CLI's default. */
+export function getCliCommands() {
+  const saved = readSavedCommands();
+  const out = {};
+  for (const d of Object.values(DEFS)) out[d.id] = saved[d.id] ?? d.setupCmd ?? d.cmd;
+  return out;
+}
+
+/** Resolve the terminal command for one CLI (saved override or default). */
+export function getCliCommand(id) {
+  const d = DEFS[id];
+  if (!d) return null;
+  return readSavedCommands()[id] ?? d.setupCmd ?? d.cmd;
+}
+
+/** Persist a user override for a CLI's terminal command. Empty string resets to default. */
+export function setCliCommand(id, command) {
+  if (!DEFS[id]) throw new Error(`Unknown CLI ${id}`);
+  const saved = readSavedCommands();
+  if (command && command.trim()) saved[id] = command.trim();
+  else delete saved[id]; // reset to default
+  fs.mkdirSync(path.dirname(COMMANDS_FILE), { recursive: true });
+  fs.writeFileSync(COMMANDS_FILE, JSON.stringify(saved, null, 2));
+  return getCliCommands();
+}
 
 /** Public registry for the frontend selector. */
 export function getRegistry() {
+  const cmds = getCliCommands();
   return Object.values(DEFS).map((d) => ({
     id: d.id,
     label: d.label,
-    available: AVAILABILITY[d.id],
+    available: isAvailable(d.id),
     nativeEffort: d.nativeEffort,
     efforts: d.efforts,
     models: d.models,
+    setupCmd: cmds[d.id],
   }));
 }
 
 export function getCli(id) {
   const d = DEFS[id];
   if (!d) return null;
-  return { ...d, available: AVAILABILITY[id] };
+  return { ...d, available: isAvailable(id), resolvedPath: AVAILABILITY[id] };
 }

@@ -4,16 +4,19 @@ import { ProjectsTab } from './components/ProjectsTab';
 import { ChatsTab } from './components/ChatsTab';
 import { SkillsTab } from './components/SkillsTab';
 import { McpsTab } from './components/McpsTab';
+import { PluginsTab } from './components/PluginsTab';
 import { UsageTab } from './components/UsageTab';
 import { CommandPalette } from './components/CommandPalette';
 import { useSocket, stopAll } from './hooks/useSocket';
 import { useJarvisStore } from './store';
+import { Box } from 'lucide-react';
 
 const TABS = [
   { id: 'projects', icon: FolderGit2, label: 'Projects' },
   { id: 'chats', icon: MessagesSquare, label: 'Chats' },
   { id: 'skills', icon: Zap, label: 'Skills' },
   { id: 'mcps', icon: Plug, label: 'MCPs' },
+  { id: 'plugins', icon: Box, label: 'Plugins' },
   { id: 'usage', icon: Activity, label: 'Usage' },
 ];
 
@@ -85,6 +88,7 @@ const VIEWS = {
   chats: ChatsTab,
   skills: SkillsTab,
   mcps: McpsTab,
+  plugins: PluginsTab,
   usage: UsageTab,
 };
 

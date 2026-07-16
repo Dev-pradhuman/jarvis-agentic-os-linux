@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mcpCatalog } from './mcp.js';
 import { SKILLS } from './skills.js';
+import { isRuflowEnabled, getRuflowInjection, recordToMemoryBank } from './ruflow.js';
 
 const PROJECTS_ROOT = process.env.JARVIS_PROJECTS_ROOT || 'C:\\Users\\Pradhuman\\projects';
 const BRAIN_ROOT = path.join(PROJECTS_ROOT, '.jarvis-brain');
@@ -338,14 +339,18 @@ export function getContext(folder) {
   ensureBrain();
   ensureSubBrain(folder);
 
+  const ruflowOn = isRuflowEnabled(folder);
   const compact = (e) => `- [${e.cli}${e.folder ? '/' + e.folder : ''}] ${truncate(e.prompt, 160)} → ${truncate(e.response, 220)}`;
-  const folderRecent = readLog(folderLog(folder), FOLDER_RECALL).map(compact).join('\n');
-  const globalRecent = readLog(GLOBAL_LOG, GLOBAL_RECALL).map(compact).join('\n');
+  // Ruflow keeps context lean: the distilled memory bank stands in for the verbose
+  // recent-conversation dump (fewer input tokens), while still grounding the agent.
+  const folderRecent = ruflowOn ? '' : readLog(folderLog(folder), FOLDER_RECALL).map(compact).join('\n');
+  const globalRecent = ruflowOn ? '' : readLog(GLOBAL_LOG, GLOBAL_RECALL).map(compact).join('\n');
   const mcpTools = mcpCatalog();
   const skillsCatalog = Object.values(SKILLS).map((s) => `- ${s.id}: ${s.label}`).join('\n');
 
   return [
     '===== JARVIS BRAIN (shared cross-CLI memory — use it, do not repeat verbatim) =====',
+    ruflowOn ? getRuflowInjection(folder) : '',
     '# Main brain (shared across ALL projects and all CLIs)',
     readDurable(MAIN_BRAIN),
     `# Project sub-brain: ${folder || '(main)'}`,
@@ -354,6 +359,7 @@ export function getContext(folder) {
     globalRecent ? `# Recent across all projects (all CLIs)\n${globalRecent}` : '',
     mcpTools ? `# MCP servers available (tools you can use)\n${mcpTools}` : '',
     `# Jarvis skills available (SOPs — describe to run one)\n${skillsCatalog}`,
+    '# INSTRUCTION: Always provide concise and terse responses unless explicitly asked for detail.',
     '===== END BRAIN =====',
   ]
     .filter(Boolean)
@@ -370,6 +376,8 @@ export function appendChat(entry) {
   const line = `${JSON.stringify(entry)}\n`;
   fs.appendFileSync(folderLog(entry.folder), line);
   fs.appendFileSync(GLOBAL_LOG, line);
+  // Ruflow: roll this exchange into the distilled memory bank (no-op when off).
+  recordToMemoryBank(entry.folder, { prompt: entry.prompt, response: entry.response, cli: entry.cli });
   // Live Obsidian update: rewrite this folder's note + the main index.
   try {
     renderSubNote(entry.folder);

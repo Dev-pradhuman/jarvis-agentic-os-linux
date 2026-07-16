@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { KeyRound, Plug, Plus, Power, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { KeyRound, Plug, Plus, Power, Search, Trash2 } from "lucide-react";
 import { useJarvisStore } from "../store";
 import { addMcp, removeMcp, toggleMcp } from "../hooks/useSocket";
+
+type Filter = "all" | "enabled" | "disabled";
 
 const PRESETS = [
   { name: "filesystem", command: "npx", args: "-y @modelcontextprotocol/server-filesystem C:/" },
@@ -12,6 +14,7 @@ const PRESETS = [
 ];
 
 export function McpsTab() {
+  const activeFolder = useJarvisStore((s) => s.activeFolder);
   const mcpServers = useJarvisStore((s) => s.mcpServers);
   const mcpError = useJarvisStore((s) => s.mcpError);
   const [mode, setMode] = useState<"stdio" | "http">("stdio");
@@ -20,6 +23,18 @@ export function McpsTab() {
   const [args, setArgs] = useState("");
   const [url, setUrl] = useState("");
   const [authFor, setAuthFor] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+
+  const shown = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return mcpServers.filter((m: any) => {
+      if (filter === "enabled" && !m.enabled) return false;
+      if (filter === "disabled" && m.enabled) return false;
+      if (needle && !`${m.label || ""} ${m.name} ${m.command || ""} ${m.url || ""}`.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [mcpServers, q, filter]);
 
   function submit() {
     if (mode === "stdio" ? !command.trim() : !url.trim()) return;
@@ -29,7 +44,7 @@ export function McpsTab() {
       command: mode === "stdio" ? command.trim() : "",
       args: mode === "stdio" ? args.trim() : "",
       url: mode === "http" ? url.trim() : "",
-    });
+    }, activeFolder);
     setName(""); setCommand(""); setArgs(""); setUrl("");
   }
 
@@ -44,10 +59,22 @@ export function McpsTab() {
       <div className="grid gap-3" style={{ gridTemplateColumns: "minmax(0,1fr) 360px" }}>
         {/* Installed servers */}
         <div className="glass-panel p-4">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Installed ({mcpServers.length})</div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Installed ({shown.length}/{mcpServers.length})</div>
+            <div className="flex items-center gap-1.5 ml-auto bg-white/[0.03] border border-white/[0.08] rounded-md px-2 py-1">
+              <Search className="h-3 w-3 text-muted-foreground" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filter…"
+                className="w-28 bg-transparent font-mono text-[10px] text-white/90 outline-none" />
+            </div>
+            {(["all", "enabled", "disabled"] as Filter[]).map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className="font-mono text-[9px] px-2 py-1 rounded-md border capitalize"
+                style={{ color: filter === f ? "#f472b6" : "#c9c9cc", borderColor: filter === f ? "#f472b666" : "rgba(255,255,255,0.08)" }}>{f}</button>
+            ))}
+          </div>
           {mcpServers.length === 0 && <div className="text-muted-foreground font-mono text-[12px]">No MCP servers imported yet.</div>}
+          {mcpServers.length > 0 && shown.length === 0 && <div className="text-muted-foreground font-mono text-[12px]">No servers match.</div>}
           <div className="flex flex-col gap-2">
-            {mcpServers.map((m: any) => {
+            {shown.map((m: any) => {
               const envKeys = Object.keys(m.env || {});
               return (
                 <div key={m.id} className="rounded-lg border border-white/[0.06] p-3" style={{ opacity: m.enabled ? 1 : 0.55 }}>
@@ -59,17 +86,17 @@ export function McpsTab() {
                     <button onClick={() => setAuthFor(authFor === m.id ? null : m.id)} className="ml-auto grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title="Authenticate (env vars / API keys)">
                       <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
                     </button>
-                    <button onClick={() => toggleMcp(m.id, !m.enabled)} className="grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title={m.enabled ? "Disable" : "Enable"}>
+                    <button onClick={() => toggleMcp(m.id, !m.enabled, activeFolder)} className="grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title={m.enabled ? "Disable" : "Enable"}>
                       <Power className="h-3.5 w-3.5" style={{ color: m.enabled ? "#10b981" : "#666" }} />
                     </button>
-                    <button onClick={() => removeMcp(m.id)} className="grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title="Remove (purges from all CLI configs)">
+                    <button onClick={() => removeMcp(m.id, activeFolder)} className="grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title="Remove (purges from all CLI configs)">
                       <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                     </button>
                   </div>
                   <div className="font-mono text-[10px] text-muted-foreground truncate mt-1">
                     {m.transport === "http" ? m.url : `${m.command} ${(m.args || []).join(" ")}`}
                   </div>
-                  {authFor === m.id && <AuthEditor server={m} onDone={() => setAuthFor(null)} />}
+                  {authFor === m.id && <AuthEditor server={m} folder={activeFolder} onDone={() => setAuthFor(null)} />}
                 </div>
               );
             })}
@@ -120,7 +147,7 @@ export function McpsTab() {
 }
 
 /** Env-var / API-key editor. Re-imports the server (upsert) with the new secrets. */
-function AuthEditor({ server, onDone }: { server: any; onDone: () => void }) {
+function AuthEditor({ server, folder, onDone }: { server: any; folder: string; onDone: () => void }) {
   const [rows, setRows] = useState<{ k: string; v: string }[]>(() => {
     const keys = Object.keys(server.env || {});
     return keys.length ? keys.map((k) => ({ k, v: server.env[k] })) : [{ k: "", v: "" }];
@@ -136,7 +163,7 @@ function AuthEditor({ server, onDone }: { server: any; onDone: () => void }) {
       args: (server.args || []).join(" "),
       url: server.url,
       env,
-    });
+    }, folder);
     onDone();
   }
 
