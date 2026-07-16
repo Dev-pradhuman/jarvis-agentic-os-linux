@@ -197,7 +197,11 @@ function syncCodex() {
   }
   const START = '# >>> jarvis-managed mcp (do not edit) >>>';
   const END = '# <<< jarvis-managed mcp <<<';
-  const re = new RegExp(`\\n?${START}[\\s\\S]*?${END}\\n?`, 'g');
+  // The markers contain regex metacharacters — notably the parens in "(do not edit)",
+  // which would otherwise be parsed as a capture group and never match the literal
+  // text, so every sync would append a fresh block instead of replacing the old one.
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`\\n?${escRe(START)}[\\s\\S]*?${escRe(END)}\\n?`, 'g');
   text = text.replace(re, '');
 
   const blocks = enabledServers()
