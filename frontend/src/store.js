@@ -68,6 +68,10 @@ export const useJarvisStore = create((set) => ({
   setFolders: ({ root, vault, folders }) => set({ projectsRoot: root, vaultPath: vault || '', folders }),
   activeFolder: SAVED.activeFolder || '', // '' = main brain
   setActiveFolder: (activeFolder) => set({ activeFolder }),
+  projectStats: null,
+  setProjectStats: (projectStats) => set({ projectStats }),
+  terminalConnected: false,
+  setTerminalConnected: (terminalConnected) => set({ terminalConnected }),
 
   roles: null, // { enhancer: {kind, id, model, effort}, coder: {kind, id, model, effort} }
   setRoles: (roles) => set({ roles }),

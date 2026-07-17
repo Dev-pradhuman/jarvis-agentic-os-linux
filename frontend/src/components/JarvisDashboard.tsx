@@ -261,14 +261,56 @@ function TokenSparkline() {
 }
 
 function LeftPanel() {
+  const activeFolder = useJarvisStore((s) => s.activeFolder);
   const live = useJarvisStore((s) => s.liveState);
-  // Real data only. Previously these fell back to hardcoded VITALS/DIRECTIVES/DOCS,
-  // so an empty real list silently rendered fabricated rows — the dashboard must
-  // never show numbers that aren't true. `loading` covers the pre-connect moment.
+  
+  const projectStats = useJarvisStore((s) => s.projectStats);
+  const setProjectStats = useJarvisStore((s) => s.setProjectStats);
+
+  useEffect(() => {
+    if (!activeFolder) {
+      setProjectStats(null);
+      return;
+    }
+    fetch(`http://localhost:3030/project-stats?folder=${encodeURIComponent(activeFolder)}`)
+      .then(r => r.json())
+      .then(d => setProjectStats(d))
+      .catch(e => console.error("Failed to fetch project stats", e));
+  }, [activeFolder, setProjectStats]);
+
   const loading = !live;
-  const vitals = live?.vitals ?? [];
-  const directives = live?.directives ?? [];
-  const docs = live?.documents ?? [];
+  
+  let vitals = live?.vitals ? [...live.vitals] : [];
+  if (projectStats && vitals.length >= 2) {
+    const fmtK = (n: number) => {
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+      if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+      return String(n);
+    };
+    vitals[0] = {
+      label: 'TOKENS',
+      value: fmtK(projectStats.estTokens),
+      pct: Math.min(100, Math.max(2, (projectStats.estTokens / 50000) * 100)),
+      tone: 'accent'
+    };
+    vitals[1] = {
+      label: 'SIZE',
+      value: `${Math.round(parseFloat(projectStats.sizeMb))}MB`,
+      pct: Math.min(100, Math.max(2, (parseFloat(projectStats.sizeMb) / 100) * 100)),
+      tone: 'accent'
+    };
+  }
+
+  let directives = live?.directives ?? [];
+  let docs = live?.documents ?? [];
+  let calendar = live?.calendar ?? [];
+  
+  if (projectStats && projectStats.dashboard) {
+    if (projectStats.dashboard.documents) docs = projectStats.dashboard.documents;
+    if (projectStats.dashboard.directives) directives = projectStats.dashboard.directives;
+    if (projectStats.dashboard.calendar) calendar = projectStats.dashboard.calendar;
+  }
+
   const tokensLabel = live?.tokensLabel ?? "—";
 
   return (
@@ -668,7 +710,13 @@ function SkillMatrix({ onRun }: { onRun: (s: Skill) => void }) {
 
 function Timeline() {
   const live = useJarvisStore((s) => s.liveState);
-  const events = live?.calendar ?? []; // real calendar only — never fabricated events
+  const projectStats = useJarvisStore((s) => s.projectStats);
+  
+  let events = live?.calendar ?? []; // real calendar only
+  if (projectStats?.dashboard?.calendar) {
+    events = projectStats.dashboard.calendar;
+  }
+
   return (
     <div className="relative">
       <div className="absolute left-[52px] top-2 bottom-2 w-px bg-white/[0.06]" />

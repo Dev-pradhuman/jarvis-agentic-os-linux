@@ -7,6 +7,7 @@ import { createRecorder } from "../lib/sttRecorder";
 import { AddProviderModal, agentColor, agentLabel, BrainSidebar, fmtWhen, McpModal } from "./shared";
 import { RolesModal } from "./RolesModal";
 import { CliCommandsModal } from "./CliCommandsModal";
+import { CommandTerminal } from "./Terminal";
 
 type ChatEntry = {
   chatId: string;
@@ -213,6 +214,7 @@ function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }
   const [recording, setRecording] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const recRef = useRef<ReturnType<typeof createRecorder> | null>(null);
+  const [showTerminal, setShowTerminal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const addPane = useJarvisStore((s) => s.addPane);
 
@@ -317,7 +319,7 @@ function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }
         <span className="font-mono text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider" style={{ color, background: `${color}1a`, border: `1px solid ${color}40` }}>
           {agentLabel(agentId)}
         </span>
-        {running && (
+        {isApi && running && (
           <button onClick={() => streamingId && stopChat(streamingId)} title="Stop this run"
             className="flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ color: "#f87171", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)" }}>
             <StopCircle className="h-3 w-3" /> stop
@@ -328,94 +330,89 @@ function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }
           {models.length === 0 && <option className="bg-[#0b0b0f]">{isApi ? "discovering…" : "—"}</option>}
           {models.map((m: any) => <option key={m.id} value={m.id} className="bg-[#0b0b0f]">{m.label}</option>)}
         </select>
-        {!isApi && (
-          <select value={effort} onChange={(e) => setEffort(e.target.value)}
-            className="bg-white/[0.03] border border-white/[0.08] rounded-md px-1.5 py-1 font-mono text-[10px] text-white/85 outline-none">
-            {(cli?.efforts ?? ["low", "medium", "high"]).map((e: string) => <option key={e} value={e} className="bg-[#0b0b0f]">{e}</option>)}
-          </select>
-        )}
-        {!isApi && (
-          <button onClick={() => openTerminal(agentId, activeFolder)}
-            className="grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]"
-            title={cli?.setupCmd ? `Open terminal → ${cli.setupCmd}` : "Open a terminal for this CLI"}>
-            <TerminalSquare className="h-3.5 w-3.5" style={{ color }} />
-          </button>
-        )}
         <button onClick={onClose} className="grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title="Close tile">
           <X className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-2" style={{ scrollbarWidth: "none" }}>
-        {messages.length === 0 && <div className="text-muted-foreground font-mono text-[11px] mt-4 text-center">No messages yet.</div>}
-        {messages.map((m) => (
-          <div key={m.chatId} className="rounded-lg border border-white/[0.06] overflow-hidden">
-            <div className="px-2.5 py-1.5 bg-white/[0.02] font-sans text-[12px] text-white/90 flex items-start gap-2">
-              <span className="flex-1">{m.prompt}</span>
-              <RememberBtn folder={activeFolder} text={`${m.prompt} → ${(m.response || "").slice(0, 400)}`} />
-              <span className="font-mono text-[9px] text-muted-foreground shrink-0">{fmtWhen(m.ts)}</span>
-            </div>
-            {(m.response || m.status === "streaming") && (
-              <div className="px-2.5 py-1.5 border-t border-white/[0.05] bg-black/20">
-                <pre className="font-mono text-[11px] text-white/75 whitespace-pre-wrap break-words leading-[1.5] m-0">{m.response || "…"}</pre>
+      {(agentId === 'claude' || agentId === 'agy') ? (
+        <div className="flex-1 overflow-hidden relative">
+          <CommandTerminal cli={agentId} />
+        </div>
+      ) : (
+        <>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-2" style={{ scrollbarWidth: "none" }}>
+            {messages.length === 0 && <div className="text-muted-foreground font-mono text-[11px] mt-4 text-center">No messages yet.</div>}
+            {messages.map((m) => (
+              <div key={m.chatId} className="rounded-lg border border-white/[0.06] overflow-hidden">
+                <div className="px-2.5 py-1.5 bg-white/[0.02] font-sans text-[12px] text-white/90 flex items-start gap-2">
+                  <span className="flex-1">{m.prompt}</span>
+                  <RememberBtn folder={activeFolder} text={`${m.prompt} → ${(m.response || "").slice(0, 400)}`} />
+                  <span className="font-mono text-[9px] text-muted-foreground shrink-0">{fmtWhen(m.ts)}</span>
+                </div>
+                {(m.response || m.status === "streaming") && (
+                  <div className="px-2.5 py-1.5 border-t border-white/[0.05] bg-black/20">
+                    <pre className="font-mono text-[11px] text-white/75 whitespace-pre-wrap break-words leading-[1.5] m-0">{m.response || "…"}</pre>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t border-white/[0.06] p-2 flex items-end gap-1.5 relative">
+            {pendingSwitch && (
+              <div className="absolute inset-x-2 bottom-full mb-2 p-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 text-yellow-200/90 text-[11px] shadow-xl flex flex-col gap-2 backdrop-blur-md z-10">
+                <div>This looks like a code change — run it on <b className="text-yellow-400">{pendingSwitch.coder}</b> instead for consistent codebase style?</div>
+                <div className="flex gap-2 font-mono">
+                  <button className="bg-white/10 hover:bg-white/20 px-2 py-1 rounded" onClick={() => {
+                    sendChat({ ...pendingSwitch.req, confirmedCoding: true });
+                    setPendingSwitch(null);
+                    setPrompt("");
+                  }}>Run here anyway</button>
+                  <button className="bg-yellow-500/20 hover:bg-yellow-500/30 px-2 py-1 rounded border border-yellow-500/50 text-yellow-400" onClick={() => {
+                    addPane(pendingSwitch.coder);
+                    sendChat({ 
+                      ...pendingSwitch.req, 
+                      cliId: pendingSwitch.coder, 
+                      model: pendingSwitch.coderModel, 
+                      effort: pendingSwitch.coderEffort, 
+                      confirmedCoding: true 
+                    });
+                    setPendingSwitch(null);
+                    setPrompt("");
+                  }}>Switch & run</button>
+                  <button className="ml-auto opacity-50 hover:opacity-100" onClick={() => {
+                    setPrompt(pendingSwitch.req.prompt);
+                    setPendingSwitch(null);
+                  }}>Cancel</button>
+                </div>
               </div>
             )}
-          </div>
-        ))}
-      </div>
-
-      <div className="border-t border-white/[0.06] p-2 flex items-end gap-1.5 relative">
-        {pendingSwitch && (
-          <div className="absolute inset-x-2 bottom-full mb-2 p-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 text-yellow-200/90 text-[11px] shadow-xl flex flex-col gap-2 backdrop-blur-md z-10">
-            <div>This looks like a code change — run it on <b className="text-yellow-400">{pendingSwitch.coder}</b> instead for consistent codebase style?</div>
-            <div className="flex gap-2 font-mono">
-              <button className="bg-white/10 hover:bg-white/20 px-2 py-1 rounded" onClick={() => {
-                sendChat({ ...pendingSwitch.req, confirmedCoding: true });
-                setPendingSwitch(null);
-                setPrompt("");
-              }}>Run here anyway</button>
-              <button className="bg-yellow-500/20 hover:bg-yellow-500/30 px-2 py-1 rounded border border-yellow-500/50 text-yellow-400" onClick={() => {
-                addPane(pendingSwitch.coder);
-                sendChat({ 
-                  ...pendingSwitch.req, 
-                  cliId: pendingSwitch.coder, 
-                  model: pendingSwitch.coderModel, 
-                  effort: pendingSwitch.coderEffort, 
-                  confirmedCoding: true 
-                });
-                setPendingSwitch(null);
-                setPrompt("");
-              }}>Switch & run</button>
-              <button className="ml-auto opacity-50 hover:opacity-100" onClick={() => {
-                setPrompt(pendingSwitch.req.prompt);
-                setPendingSwitch(null);
-              }}>Cancel</button>
+            <button onClick={toggleMic} title={recording ? "Stop & transcribe" : "Voice to prompt"}
+              className="grid place-items-center h-9 w-9 rounded-lg border transition-colors shrink-0"
+              style={{ borderColor: recording ? "#ef444488" : "rgba(255,255,255,0.08)", background: recording ? `rgba(239,68,68,${0.15 + micLevel * 0.5})` : "rgba(255,255,255,0.02)" }}>
+              {recording ? <Square className="h-3.5 w-3.5" style={{ color: "#ef4444" }} /> : <Mic className="h-4 w-4 text-muted-foreground" />}
+            </button>
+            <div className="flex-1 flex flex-col gap-1 relative">
+              <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }} rows={2}
+                placeholder={canSend ? `Task in ${activeFolder || "main brain"}… (⌘/Ctrl+Enter)` : "Unavailable"}
+                className="w-full resize-none bg-white/[0.03] border border-white/[0.08] rounded-lg px-2.5 py-2 font-mono text-[12px] text-white/90 outline-none focus:border-white/20" />
+              {enhanceNote && <div className="absolute right-2 top-2 text-[10px] text-green-400/80 bg-black/40 px-1 rounded pointer-events-none">{enhanceNote}</div>}
             </div>
+            <button onClick={handleEnhance} disabled={!prompt.trim() || enhancing || !canSend} title="Enhance Prompt"
+              className="grid place-items-center h-9 w-9 rounded-lg disabled:opacity-35 shrink-0 hover:bg-white/[0.05]"
+              style={{ color: "#a855f7", border: "1px dashed rgba(168,85,247,0.4)" }}>
+              <Sparkles className={`h-4 w-4 ${enhancing ? "animate-pulse" : ""}`} />
+            </button>
+            <button onClick={submit} disabled={!prompt.trim() || !canSend}
+              className="grid place-items-center h-9 w-9 rounded-lg disabled:opacity-35 shrink-0"
+              style={{ background: `${color}22`, border: `1px solid ${color}66`, color }}>
+              <Send className="h-4 w-4" />
+            </button>
           </div>
-        )}
-        <button onClick={toggleMic} title={recording ? "Stop & transcribe" : "Voice to prompt"}
-          className="grid place-items-center h-9 w-9 rounded-lg border transition-colors shrink-0"
-          style={{ borderColor: recording ? "#ef444488" : "rgba(255,255,255,0.08)", background: recording ? `rgba(239,68,68,${0.15 + micLevel * 0.5})` : "rgba(255,255,255,0.02)" }}>
-          {recording ? <Square className="h-3.5 w-3.5" style={{ color: "#ef4444" }} /> : <Mic className="h-4 w-4 text-muted-foreground" />}
-        </button>
-        <div className="flex-1 flex flex-col gap-1 relative">
-          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }} rows={2}
-            placeholder={canSend ? `Task in ${activeFolder || "main brain"}… (⌘/Ctrl+Enter)` : "Unavailable"}
-            className="w-full resize-none bg-white/[0.03] border border-white/[0.08] rounded-lg px-2.5 py-2 font-mono text-[12px] text-white/90 outline-none focus:border-white/20" />
-          {enhanceNote && <div className="absolute right-2 top-2 text-[10px] text-green-400/80 bg-black/40 px-1 rounded pointer-events-none">{enhanceNote}</div>}
-        </div>
-        <button onClick={handleEnhance} disabled={!prompt.trim() || enhancing || !canSend} title="Enhance Prompt"
-          className="grid place-items-center h-9 w-9 rounded-lg disabled:opacity-35 shrink-0 hover:bg-white/[0.05]"
-          style={{ color: "#a855f7", border: "1px dashed rgba(168,85,247,0.4)" }}>
-          <Sparkles className={`h-4 w-4 ${enhancing ? "animate-pulse" : ""}`} />
-        </button>
-        <button onClick={submit} disabled={!prompt.trim() || !canSend}
-          className="grid place-items-center h-9 w-9 rounded-lg disabled:opacity-35 shrink-0"
-          style={{ background: `${color}22`, border: `1px solid ${color}66`, color }}>
-          <Send className="h-4 w-4" />
-        </button>
-      </div>
+        </>
+      )}
     </div>
   );
 }

@@ -15,6 +15,8 @@ import http from 'node:http';
 import cors from 'cors';
 import express from 'express';
 import { Server } from 'socket.io';
+import os from 'node:os';
+import pty from 'node-pty';
 
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err);
@@ -28,11 +30,12 @@ process.on('unhandledRejection', (err) => {
 import { route } from './router.js';
 import { runSkill } from './skillRunner.js';
 import { SKILLS, UI_INTENTS } from './skills.js';
-import { getState, recordTokens, sampleTokens } from './state.js';
+import { getState, recordTokens, sampleTokens, getProjectDashboard } from './state.js';
 import { getCli, getRegistry, getCliCommand, getCliCommands, setCliCommand } from './cli.js';
 import { spawn } from 'node:child_process';
 import { killProcessTree, runCli } from './cliRunner.js';
 import { addProvider, API_TYPES, listProviders, modelsForProvider, removeProvider, runApiChat, updateProvider } from './providers.js';
+import { getProjectStats } from './projectStats.js';
 import { addMcp, listMcp, removeMcp, setEnabled as setMcpEnabled, syncAll } from './mcp.js';
 import { listPlugins, addPlugin, removePlugin, setEnabled as setPluginEnabled } from './plugins.js';
 import { listClaudePlugins, activateClaudePlugin, deactivateClaudePlugin, toggleClaudePlugin, scaffoldLocalPlugin, localPluginsDir } from './claudePlugins.js';
@@ -57,6 +60,16 @@ app.get('/skills', (_req, res) => res.json(Object.values(SKILLS)));
 app.get('/state', (_req, res) => res.json(getState(running)));
 app.get('/clis', (_req, res) => res.json(getRegistry()));
 app.get('/folders', (_req, res) => res.json({ root: ROOT, vault: VAULT_PATH, folders: listFolders() }));
+app.get('/project-stats', (req, res) => {
+  const folder = req.query.folder;
+  if (!folder) return res.json(null);
+  const fullPath = path.join(ROOT, folder);
+  if (!fullPath.startsWith(ROOT)) return res.json(null);
+  res.json({
+    ...getProjectStats(fullPath),
+    dashboard: getProjectDashboard(folder)
+  });
+});
 app.get('/providers', (_req, res) => res.json(listProviders()));
 app.get('/provider-types', (_req, res) => res.json(API_TYPES));
 app.get('/skills-manage', (_req, res) => res.json(listSkills()));
@@ -641,7 +654,61 @@ io.on('connection', (socket) => {
     await executeSkill(skill, parameters);
   });
 
-  socket.on('disconnect', () => console.log(`[ws] client left: ${socket.id}`));
+  let ptyProcess = null;
+
+  socket.on('terminal_start', ({ cli, cols, rows } = {}) => {
+    if (ptyProcess) return;
+
+    // WARNING: This gives full shell access! Bind to localhost only! No external exposure!
+    const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+    let cmd = shell;
+    let args = [];
+
+    if (cli === 'claude') {
+      args = ['-NoExit', '-Command', 'claude --dangerously-skip-permissions'];
+      if (os.platform() !== 'win32') args = ['-c', 'claude --dangerously-skip-permissions'];
+    } else if (cli === 'agy') {
+      args = ['-NoExit', '-Command', 'agy --dangerously-skip-permissions'];
+      if (os.platform() !== 'win32') args = ['-c', 'agy --dangerously-skip-permissions'];
+    }
+
+    try {
+      ptyProcess = pty.spawn(cmd, args, {
+        name: 'xterm-256color',
+        cols: cols || 80,
+        rows: rows || 24,
+        cwd: process.env.HOME || process.cwd(),
+        env: process.env
+      });
+      ptyProcess.onData((data) => {
+        socket.emit('terminal_data', data);
+      });
+      ptyProcess.onExit(() => {
+        socket.emit('terminal_exit');
+        ptyProcess = null;
+      });
+    } catch (e) {
+      socket.emit('terminal_data', `\r\nFailed to start terminal: ${e.message}\r\n`);
+    }
+  });
+
+  socket.on('terminal_input', (data) => {
+    if (ptyProcess) ptyProcess.write(data);
+  });
+
+  socket.on('terminal_resize', ({ cols, rows }) => {
+    if (ptyProcess && cols && rows) {
+      try { ptyProcess.resize(cols, rows); } catch (e) {}
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`[ws] client left: ${socket.id}`);
+    if (ptyProcess) {
+      try { ptyProcess.kill(); } catch (e) {}
+      ptyProcess = null;
+    }
+  });
 });
 
 // Live-state heartbeat: sample the token series and push a fresh snapshot.
