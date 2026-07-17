@@ -420,7 +420,7 @@ function TerminalFeed() {
   }, [liveLogs, hasLive]);
 
   return (
-    <div className="glass-panel h-[180px] flex flex-col overflow-hidden">
+    <div className="glass-panel h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
@@ -479,17 +479,27 @@ function CenterStage({
   const connected = useJarvisStore((s) => s.connected);
 
   return (
-    <section className="relative flex flex-col gap-4 min-h-0 h-full">
-      {/* Top status bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <StatusPill label="CORE" active />
-          <StatusPill label="LISTENING" active={isListening} />
-          <StatusPill label="ONLINE" active={connected} />
+    <section className="relative flex flex-col gap-3 min-h-0 h-full">
+      {/* Compact core banner — a calm, audio-reactive accent (not a 50%-screen
+          decoration). Identity + voice + live status in one tidy row. */}
+      <div className="glass-panel relative flex items-center gap-4 px-4 py-3 shrink-0 overflow-hidden">
+        <div className="h-16 w-16 shrink-0">
+          <CoreCanvas />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-mono text-[9px] tracking-[0.3em] text-muted-foreground uppercase">The Core</div>
+          <div className="mt-0.5 font-sans text-[14px] font-medium" style={{ color: isListening ? "#6ee7b7" : "#c4b5fd" }}>
+            {isListening ? "listening…" : "standing by · ask anything"}
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <StatusPill label="CORE" active />
+            <StatusPill label="LISTENING" active={isListening} />
+            <StatusPill label="ONLINE" active={connected} />
+          </div>
         </div>
         <button
           onClick={toggle}
-          className="glass-panel flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors hover:bg-white/[0.04]"
+          className="glass-panel flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors hover:bg-white/[0.04] shrink-0"
           style={isListening ? { borderColor: "rgba(16,185,129,0.5)", background: "rgba(16,185,129,0.08)" } : undefined}
           aria-label={isListening ? "Stop listening" : "Start listening"}
         >
@@ -503,55 +513,9 @@ function CenterStage({
         </button>
       </div>
 
-      {/* Core stage */}
-      <div className="relative flex-1 glass-panel overflow-hidden">
-        {/* Radial gradient backdrop */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ background: "radial-gradient(ellipse at center, rgba(139,92,246,0.10), transparent 60%)" }}
-        />
-        {/* Scanline */}
-        <div
-          className="absolute inset-x-0 h-24 pointer-events-none opacity-30"
-          style={{
-            background: "linear-gradient(to bottom, transparent, rgba(139,92,246,0.15), transparent)",
-            animation: "scan 6s linear infinite",
-          }}
-        />
-
-        {/* Soft radial glow behind the core */}
-        <div
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-          style={{
-            width: "min(55vh, 620px)",
-            height: "min(55vh, 620px)",
-            background:
-              "radial-gradient(circle, rgba(139,92,246,0.35) 0%, rgba(139,92,246,0.12) 35%, rgba(139,92,246,0) 70%)",
-            filter: "blur(20px)",
-          }}
-        />
-
-        {/* 3D Core canvas — fills the stage between status bar and terminal feed */}
-        <div className="absolute inset-0 z-[1] flex items-center justify-center">
-          <div style={{ width: "100%", height: "100%" }}>
-            <CoreCanvas />
-          </div>
-        </div>
-
-        {/* Prompt line */}
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 text-center z-10">
-          <div className="font-mono text-[10px] tracking-[0.35em] text-muted-foreground uppercase">The Core</div>
-          <div className="mt-1 font-sans text-[14px] font-medium" style={{ color: "#c4b5fd" }}>
-            standing by · ask anything
-          </div>
-        </div>
-
-        {/* Corner ticks */}
-        {["top-4 left-4", "top-4 right-4", "bottom-4 left-4", "bottom-4 right-4"].map((pos, i) => (
-          <div key={i} className={`absolute ${pos} font-mono text-[9px] text-muted-foreground/50 z-10`}>
-            {["N", "E", "S", "W"][i]}·{["0x00", "0x1f", "0x2e", "0x4a"][i]}
-          </div>
-        ))}
+      {/* Live feed takes the reclaimed center — real agent activity, front and center */}
+      <div className="relative flex-1 min-h-0">
+        <TerminalFeed />
 
         {/* Running skill popup */}
         <AnimatePresence>
@@ -633,8 +597,6 @@ function CenterStage({
           )}
         </AnimatePresence>
       </div>
-
-      <TerminalFeed />
     </section>
   );
 }
@@ -654,7 +616,7 @@ function Clock() {
   return (
     <div className="flex items-end justify-between">
       <div>
-        <div className="font-mono font-semibold text-[38px] leading-none text-white tabular-nums tracking-tight">
+        <div className="font-mono font-semibold text-[30px] leading-none text-white tabular-nums tracking-tight">
           {time}
         </div>
         <div className="mt-1.5 font-mono text-[10px] tracking-[0.2em] uppercase text-muted-foreground">
@@ -762,7 +724,6 @@ function RightPanel({ onRun }: { onRun: (s: Skill) => void }) {
           <Radio className="h-3.5 w-3.5" style={{ color: "#10b981" }} />
           <div className="font-mono text-[11px] tracking-[0.25em] text-white/90">COMMAND DECK</div>
         </div>
-        <div className="font-mono text-[10px] text-muted-foreground">op·1</div>
       </div>
 
       <Clock />
@@ -814,15 +775,6 @@ function GridBackdrop() {
         </defs>
         <rect width="100%" height="100%" fill="url(#grid)" mask="url(#grid-mask)" />
       </svg>
-      {/* Ambient glows */}
-      <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[520px] w-[520px] rounded-full"
-        style={{ background: "radial-gradient(circle, rgba(139,92,246,0.10), transparent 70%)" }}
-      />
-      <div
-        className="absolute bottom-0 right-0 h-[300px] w-[300px] rounded-full"
-        style={{ background: "radial-gradient(circle, rgba(16,185,129,0.06), transparent 70%)" }}
-      />
     </div>
   );
 }
