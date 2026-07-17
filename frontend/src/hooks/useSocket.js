@@ -145,6 +145,10 @@ export function useSocket() {
     socket.on('remembered', (r) => r?.ok === false
       ? useJarvisStore.getState().pushToast('error', 'Remember failed', r.error || '')
       : useJarvisStore.getState().pushToast('success', 'Saved to brain', ''));
+    socket.on('folder_analyzed', ({ folder }) =>
+      useJarvisStore.getState().pushToast('success', 'Project analyzed', `${folder || 'root'} — brief written to its brain`));
+    socket.on('analyze_error', ({ folder, message }) =>
+      useJarvisStore.getState().pushToast('error', 'Analyze failed', `${folder}: ${message}`));
 
     // Coder switch confirmation
     socket.on('confirm_coder_switch', ({ originalRequest, coderCli }) => {
@@ -251,6 +255,14 @@ export function toggleMcp(id, enabled, folder) {
  */
 export function syncMcps() {
   socket?.emit('mcp_sync');
+}
+
+/**
+ * Re-scan a project and refresh its sub-brain brief. Projects self-analyze on first
+ * use, so this is only for forcing a refresh after the project changes shape.
+ */
+export function analyzeFolder(folder = '') {
+  socket?.emit('analyze_folder', { folder });
 }
 
 // ── Skills dashboard ──

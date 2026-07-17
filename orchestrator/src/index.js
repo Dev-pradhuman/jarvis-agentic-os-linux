@@ -40,7 +40,7 @@ import { getRoles, setRole } from './roles.js';
 import { isRuflowEnabled, setRuflowEnabled, getRuflowState, writeMemoryBank } from './ruflow.js';
 import { seedBest, seedExtras, getCatalog } from './catalog.js';
 import { enhancePrompt } from './promptEnhancer.js';
-import { appendChat, appendNote, ensureBrain, generateAllSubBrains, getContext, listChats, listFolders, ROOT, searchBrain, VAULT_PATH } from './brain.js';
+import { analyzeFolder, appendChat, appendNote, ensureBrain, generateAllSubBrains, getContext, listChats, listFolders, ROOT, searchBrain, VAULT_PATH } from './brain.js';
 import { deleteSkill, isSkillEnabled, listSkills, readSkill, saveSkill, setSkillEnabled } from './skillsManager.js';
 import { getUsage } from './usage.js';
 import path from 'node:path';
@@ -246,6 +246,18 @@ io.on('connection', (socket) => {
 
   // ── Skills dashboard — CRUD over the real SOP files on disk. A disabled skill
   // is refused at execution time, so the toggle genuinely stops it running. ──
+  // Re-scan a project and refresh its sub-brain brief on demand. New projects are
+  // analyzed automatically the first time they're seen (generateAllSubBrains), so
+  // this is the manual "the project changed shape, re-read it" button.
+  socket.on('analyze_folder', ({ folder } = {}) => {
+    try {
+      const res = analyzeFolder(folder || '');
+      socket.emit('folder_analyzed', { folder: folder || '', ...res });
+    } catch (e) {
+      socket.emit('analyze_error', { folder: folder || '', message: e.message });
+    }
+  });
+
   socket.on('skills_request', ({ folder } = {}) => socket.emit('skills_list', listSkills(folder)));
   socket.on('skill_read', ({ id }) => socket.emit('skill_content', { id, content: readSkill(id) }));
   socket.on('skill_toggle', ({ id, enabled, folder }) => {

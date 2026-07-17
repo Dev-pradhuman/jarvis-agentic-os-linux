@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Box, CornerDownLeft, FolderGit2, Hash, MessageSquare, Play, Plug, RefreshCw, Search, Square, Terminal, Zap } from "lucide-react";
 import { useJarvisStore } from "../store";
-import { openTerminal, searchBrain, sendSkill, setRuflow, stopAll, syncMcps } from "../hooks/useSocket";
+import { analyzeFolder, openTerminal, searchBrain, sendSkill, setRuflow, stopAll, syncMcps } from "../hooks/useSocket";
 import { agentColor } from "./shared";
 
 type Action = { id: string; label: string; hint?: string; icon: any; color?: string; run: () => void };
@@ -77,6 +77,11 @@ export function CommandPalette() {
       { id: "t-usage", label: "Go to Usage", icon: Activity, run: () => setView("usage") },
       { id: "stop-all", label: "Stop all agents", hint: "kill switch", icon: Square, color: "#ef4444", run: () => stopAll() },
       { id: "mcp-sync", label: "Sync MCPs to every CLI config", hint: "repair", icon: RefreshCw, color: "#f472b6", run: () => syncMcps() },
+      {
+        id: "analyze-folder", hint: "brain", icon: RefreshCw, color: "#a78bfa",
+        label: activeFolder ? `Re-analyze project · ${activeFolder}` : "Re-analyze all projects",
+        run: () => analyzeFolder(activeFolder),
+      },
       {
         id: "ruflow-on", label: "Ruflow · token-lean mode ON", hint: "cheaper", icon: Zap, color: "#10b981",
         run: () => setRuflow(true, activeFolder),
