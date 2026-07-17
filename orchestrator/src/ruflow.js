@@ -112,9 +112,14 @@ export function writeMemoryBank(folder, section, content) {
  * Roll a completed exchange into the memory bank, cheaply (no LLM):
  * activeContext = the latest task; progress = a capped rolling log. Keeps the
  * injected context small and current so full history recall isn't needed.
+ *
+ * Failed/stopped runs are skipped: activeContext is overwritten on every call, so
+ * one 402 or CLI usage dump would otherwise become "the current task" for every
+ * agent that reads the bank next.
  */
-export function recordToMemoryBank(folder, { prompt = '', response = '', cli = '' } = {}) {
+export function recordToMemoryBank(folder, { prompt = '', response = '', cli = '', status = 'ok' } = {}) {
   if (!isRuflowEnabled(folder)) return;
+  if (status === 'error' || status === 'stopped') return;
   try {
     fs.mkdirSync(bankDir(folder), { recursive: true });
     const oneLine = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);

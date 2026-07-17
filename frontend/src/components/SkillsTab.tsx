@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FileCode2, Pencil, Play, Plus, Power, Save, Search, Trash2, X, Zap } from "lucide-react";
 import { useJarvisStore } from "../store";
 import { deleteSkill, readSkill, requestSkills, saveSkill, sendSkill, toggleSkill } from "../hooks/useSocket";
+import { SkeletonGrid } from "./ui";
 
 function relTime(ms?: number) {
   if (!ms) return "";
@@ -15,12 +16,18 @@ function relTime(ms?: number) {
 export function SkillsTab() {
   const activeFolder = useJarvisStore((s) => s.activeFolder);
   const skills = useJarvisStore((s) => s.skills);
+  const connected = useJarvisStore((s) => s.connected);
   const activeSkills = useJarvisStore((s) => s.activeSkills);
+  const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "enabled" | "disabled">("all");
 
   useEffect(() => { requestSkills(activeFolder); }, [activeFolder]);
+  // Distinguish "still loading" from a genuinely empty list, so we don't flash
+  // "no skills" at the user while the socket round-trip is still in flight.
+  useEffect(() => { if (skills.length) setLoaded(true); }, [skills.length]);
+  const loading = !loaded && skills.length === 0 && connected !== false;
 
   const runState = (id: string) => activeSkills.find((s: any) => s.skillId === id);
 
@@ -58,6 +65,9 @@ export function SkillsTab() {
         </div>
       </div>
 
+      {loading && <SkeletonGrid count={6} minWidth={300} />}
+
+      {!loading && (
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
         {shown.map((s: any) => {
           const rs = runState(s.id);
@@ -97,7 +107,9 @@ export function SkillsTab() {
           );
         })}
         {skills.length === 0 && <div className="text-muted-foreground font-mono text-[12px]">No skills found in the vault.</div>}
+        {skills.length > 0 && shown.length === 0 && <div className="text-muted-foreground font-mono text-[12px]">No skills match the filter.</div>}
       </div>
+      )}
 
       {editing && <SkillEditor id={editing} folder={activeFolder} onClose={() => setEditing(null)} />}
     </div>

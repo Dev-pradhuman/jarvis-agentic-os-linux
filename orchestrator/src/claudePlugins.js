@@ -25,6 +25,10 @@ import { listPlugins, addPlugin, removePlugin, setEnabled as setPluginEnabled } 
 
 const HOME = os.homedir();
 const MARKETPLACES = path.join(HOME, '.claude', 'plugins', 'marketplaces');
+// Your own plugins live here, in the SAME format as a Claude Code plugin, so they
+// activate through the identical path and reach every CLI + API provider.
+const PROJECTS_ROOT = process.env.JARVIS_PROJECTS_ROOT || 'C:\\Users\\Pradhuman\\projects';
+const LOCAL_PLUGINS = path.join(PROJECTS_ROOT, '.jarvis-brain', 'plugins');
 
 function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
@@ -81,9 +85,17 @@ function inspectPlugin(baseDir, name, marketplace) {
   };
 }
 
-/** Every plugin discoverable across all local marketplaces (plugins + external_plugins). */
+/**
+ * Every plugin discoverable across the Claude marketplaces AND your own local
+ * plugins in .jarvis-brain/plugins. Local ones win on id collision (they're yours).
+ */
 export function scanClaudePlugins() {
   const found = [];
+  // Yours first — they take precedence in the de-dupe below.
+  for (const name of listDirs(LOCAL_PLUGINS)) {
+    if (name.startsWith('.')) continue;
+    try { found.push({ ...inspectPlugin(LOCAL_PLUGINS, name, 'local'), local: true }); } catch { /* skip */ }
+  }
   for (const mp of listDirs(MARKETPLACES)) {
     for (const sub of ['plugins', 'external_plugins']) {
       const base = path.join(MARKETPLACES, mp, sub);
@@ -163,4 +175,46 @@ export function deactivateClaudePlugin(id, folder) {
 export function toggleClaudePlugin(id, enabled, folder) {
   setPluginEnabled(id, enabled, folder);
   return { id, enabled: !!enabled };
+}
+
+/**
+ * Scaffold one of YOUR OWN plugins in .jarvis-brain/plugins/<name>/, in the exact
+ * Claude Code plugin layout — so activating it fans your skills/commands/MCPs to
+ * every CLI + API through the same path the official plugins use. Edit the files,
+ * then hit Activate.
+ */
+export function scaffoldLocalPlugin(name) {
+  const id = safeId(name);
+  if (!id) throw new Error('plugin needs a name');
+  const dir = path.join(LOCAL_PLUGINS, id);
+  if (fs.existsSync(dir)) throw new Error(`plugin '${id}' already exists`);
+
+  fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'skills', 'example'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'commands'), { recursive: true });
+
+  fs.writeFileSync(
+    path.join(dir, '.claude-plugin', 'plugin.json'),
+    JSON.stringify({ name: id, description: `${name} — my plugin`, author: { name: 'me' } }, null, 2),
+  );
+  fs.writeFileSync(
+    path.join(dir, 'skills', 'example', 'SKILL.md'),
+    `# ${name} — example skill\n\nDescribe what this skill does and the steps an agent should follow.\nEvery CLI and API provider gets this once the plugin is activated.\n`,
+  );
+  fs.writeFileSync(
+    path.join(dir, 'commands', `${id}.md`),
+    `# /${id}\n\nWhat this command should do. Commands are just prompts, so they port to\nevery agent, not only Claude.\n`,
+  );
+  // A .mcp.json is optional — drop servers in here and they sync to every CLI.
+  fs.writeFileSync(
+    path.join(dir, '.mcp.json'),
+    JSON.stringify({}, null, 2),
+  );
+
+  return { id, dir };
+}
+
+/** Where your own plugins live (surfaced in the UI so you can go edit them). */
+export function localPluginsDir() {
+  return LOCAL_PLUGINS;
 }

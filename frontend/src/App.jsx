@@ -9,7 +9,8 @@ import { UsageTab } from './components/UsageTab';
 import { CommandPalette } from './components/CommandPalette';
 import { useSocket, stopAll } from './hooks/useSocket';
 import { useJarvisStore } from './store';
-import { Box } from 'lucide-react';
+import { Box, BrainCircuit, Power } from 'lucide-react';
+import { ToastHost } from './components/ui';
 
 const TABS = [
   { id: 'projects', icon: FolderGit2, label: 'Projects' },
@@ -29,17 +30,21 @@ function TabBar() {
   const togglePalette = useJarvisStore((s) => s.togglePalette);
   const running = useJarvisStore((s) => s.chatSessions.filter((c) => c.status === 'streaming').length);
 
-  const Tab = ({ id, icon: Icon, label }) => (
+  const Tab = ({ id, icon: Icon, label, index }) => (
     <button
       onClick={() => setView(id)}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono text-[11px] tracking-wider uppercase transition-colors"
+      className="group flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono text-[11px] tracking-wider uppercase transition-colors"
       style={{
         color: view === id ? '#c4b5fd' : '#87878a',
         background: view === id ? 'rgba(139,92,246,0.12)' : 'transparent',
         border: `1px solid ${view === id ? 'rgba(139,92,246,0.35)' : 'transparent'}`,
       }}
+      title={`${label} · Ctrl+${index + 1}`}
     >
       <Icon className="h-3.5 w-3.5" /> {label}
+      <span className="font-mono text-[8px] text-white/25 group-hover:text-white/50 transition-colors hidden lg:inline">
+        {index + 1}
+      </span>
       {id === 'chats' && panes.length > 0 && (
         <span className="font-mono text-[9px] px-1 rounded" style={{ background: 'rgba(139,92,246,0.25)', color: '#c4b5fd' }}>{panes.length}</span>
       )}
@@ -47,14 +52,27 @@ function TabBar() {
   );
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 border-b border-white/[0.06]">
-      <div className="font-mono text-[12px] tracking-[0.35em] text-white/90 pl-1">JARVIS</div>
-      <div className="flex items-center gap-1.5">
-        {TABS.map((t) => (
-          <Tab key={t.id} {...t} />
+    <div className="flex items-center gap-3 px-3 py-2.5 border-b border-white/[0.06] relative">
+      {/* header wash — the depth from the COMMAND DECK reference */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: 'radial-gradient(80% 300% at 0% 50%, rgba(139,92,246,0.10), transparent 70%)' }} />
+
+      <div className="flex items-center gap-2 pl-1 relative">
+        <span className="grid place-items-center h-6 w-6 rounded-lg"
+          style={{ background: 'linear-gradient(140deg,#8b5cf6,#6366f1)', boxShadow: '0 0 14px rgba(139,92,246,0.45)' }}>
+          <BrainCircuit className="h-3.5 w-3.5 text-white" />
+        </span>
+        <span className="font-mono text-[12px] tracking-[0.28em] text-white/95">JARVIS.OS</span>
+        <span className="font-mono text-[9px] tracking-[0.18em] text-muted-foreground hidden md:inline">V1.4 · COMMAND DECK</span>
+      </div>
+
+      <div className="flex items-center gap-1.5 relative">
+        {TABS.map((t, i) => (
+          <Tab key={t.id} {...t} index={i} />
         ))}
       </div>
-      <div className="ml-auto flex items-center gap-2">
+
+      <div className="ml-auto flex items-center gap-2 relative">
         <button
           onClick={togglePalette}
           className="flex items-center gap-1.5 px-2 py-1 rounded-md font-mono text-[10px] text-muted-foreground border border-white/[0.08] hover:border-white/20 hover:text-white/80 transition-colors"
@@ -69,14 +87,19 @@ function TabBar() {
           style={{ color: running ? '#fca5a5' : '#87878a', border: `1px solid ${running ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.08)'}`, background: running ? 'rgba(239,68,68,0.1)' : 'transparent' }}
           title="Emergency stop — halt all running agents"
         >
-          <Square className="h-3 w-3" /> Stop{running ? ` ·${running}` : ''}
+          <Power className="h-3 w-3" /> Stop{running ? ` ·${running}` : ''}
         </button>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          {activeFolder ? `sub-brain · ${activeFolder}` : 'main brain'}
+        <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground px-2 py-1 rounded-md border border-white/[0.08]">
+          {activeFolder ? `sub-brain · ${activeFolder}` : 'main brain · root'}
         </span>
         <span
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ background: connected ? '#10b981' : '#eab308', boxShadow: connected ? '0 0 8px rgba(16,185,129,0.9)' : 'none' }}
+          className="h-1.5 w-1.5 rounded-full shrink-0"
+          style={{
+            background: connected ? '#10b981' : '#eab308',
+            boxShadow: connected ? '0 0 8px rgba(16,185,129,0.9)' : 'none',
+            animation: connected ? 'pulse-dot 2.4s ease-in-out infinite' : 'none',
+          }}
+          title={connected ? 'Orchestrator connected' : 'Connecting…'}
         />
       </div>
     </div>
@@ -99,12 +122,23 @@ export default function App() {
   const togglePalette = useJarvisStore((s) => s.togglePalette);
   const Current = VIEWS[view] ?? ProjectsTab;
 
-  // Global shortcuts: ⌘/Ctrl+K opens the palette. Ask for notification permission once.
+  const setView = useJarvisStore((s) => s.setView);
+
+  // Global shortcuts: ⌘/Ctrl+K opens the palette, ⌘/Ctrl+1..6 jump straight to a
+  // tab. Ask for notification permission once.
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (e.key.toLowerCase() === 'k') {
         e.preventDefault();
         togglePalette();
+        return;
+      }
+      // Digit row → tab, in the order they're rendered.
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= TABS.length) {
+        e.preventDefault();
+        setView(TABS[n - 1].id);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -112,7 +146,7 @@ export default function App() {
       Notification.requestPermission().catch(() => {});
     }
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePalette, setPaletteOpen]);
+  }, [togglePalette, setPaletteOpen, setView]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden">
@@ -121,6 +155,7 @@ export default function App() {
         <Current />
       </div>
       <CommandPalette />
+      <ToastHost />
     </div>
   );
 }

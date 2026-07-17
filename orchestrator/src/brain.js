@@ -107,6 +107,18 @@ function readLog(p, limit) {
   }
 }
 
+/**
+ * Recall = only exchanges worth remembering. A failed or stopped run teaches the
+ * next agent nothing and actively misleads it: a 402 from a provider or a CLI's
+ * own usage text is not a fact about the project, but it reads as one once it's
+ * sitting under "Recent in this project". Filtering happens BEFORE the slice so a
+ * burst of failures can't crowd the real exchanges out of the window.
+ */
+function readRecall(p, limit) {
+  const good = readLog(p).filter((e) => e && e.status !== 'error' && e.status !== 'stopped');
+  return limit ? good.slice(-limit) : good;
+}
+
 // ── Obsidian note plumbing ───────────────────────────────────────────────────
 
 /** Remove YAML frontmatter from a note body. */
@@ -343,8 +355,8 @@ export function getContext(folder) {
   const compact = (e) => `- [${e.cli}${e.folder ? '/' + e.folder : ''}] ${truncate(e.prompt, 160)} → ${truncate(e.response, 220)}`;
   // Ruflow keeps context lean: the distilled memory bank stands in for the verbose
   // recent-conversation dump (fewer input tokens), while still grounding the agent.
-  const folderRecent = ruflowOn ? '' : readLog(folderLog(folder), FOLDER_RECALL).map(compact).join('\n');
-  const globalRecent = ruflowOn ? '' : readLog(GLOBAL_LOG, GLOBAL_RECALL).map(compact).join('\n');
+  const folderRecent = ruflowOn ? '' : readRecall(folderLog(folder), FOLDER_RECALL).map(compact).join('\n');
+  const globalRecent = ruflowOn ? '' : readRecall(GLOBAL_LOG, GLOBAL_RECALL).map(compact).join('\n');
   const mcpTools = mcpCatalog();
   const skillsCatalog = Object.values(SKILLS).map((s) => `- ${s.id}: ${s.label}`).join('\n');
 
@@ -377,7 +389,7 @@ export function appendChat(entry) {
   fs.appendFileSync(folderLog(entry.folder), line);
   fs.appendFileSync(GLOBAL_LOG, line);
   // Ruflow: roll this exchange into the distilled memory bank (no-op when off).
-  recordToMemoryBank(entry.folder, { prompt: entry.prompt, response: entry.response, cli: entry.cli });
+  recordToMemoryBank(entry.folder, { prompt: entry.prompt, response: entry.response, cli: entry.cli, status: entry.status });
   // Live Obsidian update: rewrite this folder's note + the main index.
   try {
     renderSubNote(entry.folder);

@@ -33,9 +33,9 @@ import { getCli, getRegistry, getCliCommand, getCliCommands, setCliCommand } fro
 import { spawn } from 'node:child_process';
 import { killProcessTree, runCli } from './cliRunner.js';
 import { addProvider, API_TYPES, listProviders, modelsForProvider, removeProvider, runApiChat, updateProvider } from './providers.js';
-import { addMcp, listMcp, mcpCatalog, removeMcp, setEnabled as setMcpEnabled, syncAll } from './mcp.js';
+import { addMcp, listMcp, removeMcp, setEnabled as setMcpEnabled, syncAll } from './mcp.js';
 import { listPlugins, addPlugin, removePlugin, setEnabled as setPluginEnabled } from './plugins.js';
-import { listClaudePlugins, activateClaudePlugin, deactivateClaudePlugin, toggleClaudePlugin } from './claudePlugins.js';
+import { listClaudePlugins, activateClaudePlugin, deactivateClaudePlugin, toggleClaudePlugin, scaffoldLocalPlugin, localPluginsDir } from './claudePlugins.js';
 import { getRoles, setRole } from './roles.js';
 import { isRuflowEnabled, setRuflowEnabled, getRuflowState, writeMemoryBank } from './ruflow.js';
 import { seedBest, seedExtras, getCatalog } from './catalog.js';
@@ -404,6 +404,18 @@ io.on('connection', (socket) => {
     toggleClaudePlugin(id, enabled, folder);
     io.emit('claude_plugins_list', { folder: folder || '', plugins: listClaudePlugins(folder) });
   });
+  // Scaffold one of YOUR plugins — same format, same activate path, every CLI + API.
+  socket.on('claude_plugin_scaffold', ({ name, folder } = {}) => {
+    try {
+      const { id, dir } = scaffoldLocalPlugin(name);
+      io.emit('claude_plugins_list', { folder: folder || '', plugins: listClaudePlugins(folder) });
+      socket.emit('plugin_scaffolded', { id, dir });
+      io.emit('terminal_log', `[jarvis] scaffolded plugin '${id}' → ${dir}\n`);
+    } catch (e) {
+      socket.emit('claude_plugin_error', { error: e.message });
+    }
+  });
+  socket.on('local_plugins_dir', () => socket.emit('local_plugins_dir_result', { dir: localPluginsDir() }));
 
   // ── Usage analytics — aggregated from the brain chat log + live telemetry. ──
   socket.on('usage_request', () => socket.emit('usage_update', getUsage(running)));

@@ -75,6 +75,15 @@ export const useJarvisStore = create((set) => ({
   ruflow: null, // { enabled, globalEnabled, folder, files:{activeContext,decisions,patterns,progress} }
   setRuflow: (ruflow) => set({ ruflow }),
 
+  // ---- Toasts — surface backend error/success events that were being swallowed ----
+  toasts: [], // [{id, kind:'error'|'success', title, message}]
+  pushToast: (kind, title, message) => {
+    const id = Date.now() + Math.random();
+    set((s) => ({ toasts: [...s.toasts, { id, kind, title, message }].slice(-4) }));
+    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === 'error' ? 8000 : 4000);
+  },
+  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
   chatSessions: [], // live sessions this UI session (streaming)
   startChatSession: (meta) =>
     set((s) => ({ chatSessions: [...s.chatSessions, { ...meta, response: '', status: 'streaming' }] })),

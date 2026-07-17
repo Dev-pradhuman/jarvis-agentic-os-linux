@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Power, Trash2, Box, Search, Download, Check } from "lucide-react";
 import { useJarvisStore } from "../store";
 import {
-  addPlugin, removePlugin, requestPlugins, togglePlugin,
-  requestClaudePlugins, activateClaudePlugin, deactivateClaudePlugin, toggleClaudePlugin,
+  removePlugin, requestPlugins, togglePlugin,
+  requestClaudePlugins, activateClaudePlugin, deactivateClaudePlugin, toggleClaudePlugin, scaffoldPlugin,
 } from "../hooks/useSocket";
+import { SkeletonGrid } from "./ui";
 
 type Filter = "all" | "active" | "inactive";
 
@@ -12,14 +13,19 @@ export function PluginsTab() {
   const activeFolder = useJarvisStore((s) => s.activeFolder);
   const plugins = useJarvisStore((s) => s.plugins || []);
   const claudePlugins = useJarvisStore((s) => s.claudePlugins || []);
+  const connected = useJarvisStore((s) => s.connected);
   const [name, setName] = useState("");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     requestPlugins(activeFolder);
     requestClaudePlugins(activeFolder);
   }, [activeFolder]);
+
+  useEffect(() => { if (claudePlugins.length) setLoaded(true); }, [claudePlugins.length]);
+  const loading = !loaded && claudePlugins.length === 0 && connected !== false;
 
   // Per-project filter view: search + active/inactive.
   const shown = useMemo(() => {
@@ -36,7 +42,7 @@ export function PluginsTab() {
 
   function submit() {
     if (!name.trim()) return;
-    addPlugin({ name: name.trim() }, activeFolder);
+    scaffoldPlugin(name.trim(), activeFolder); // creates a real plugin skeleton on disk
     setName("");
   }
 
@@ -70,15 +76,20 @@ export function PluginsTab() {
       {/* Claude Code plugin catalog */}
       <div className="glass-panel p-4 mb-3">
         <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-3">
-          Claude Code plugins ({shown.length})
+          Claude Code plugins ({loading ? "…" : shown.length})
         </div>
-        {shown.length === 0 && <div className="text-muted-foreground font-mono text-[12px]">No plugins match.</div>}
+        {loading && <SkeletonGrid count={6} minWidth={320} />}
+        {!loading && shown.length === 0 && <div className="text-muted-foreground font-mono text-[12px]">No plugins match.</div>}
         <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>
-          {shown.map((p: any) => (
+          {!loading && shown.map((p: any) => (
             <div key={p.id} className="rounded-lg border border-white/[0.06] p-3" style={{ opacity: p.activated && !p.enabled ? 0.55 : 1 }}>
               <div className="flex items-center gap-2">
-                <Box className="h-3.5 w-3.5" style={{ color: p.activated ? "#22d3ee" : "#666" }} />
+                <Box className="h-3.5 w-3.5 shrink-0" style={{ color: p.activated ? "#22d3ee" : "#666" }} />
                 <span className="font-sans text-[13px] text-white/90 truncate">{p.label}</span>
+                {p.local && (
+                  <span className="font-mono text-[8px] px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0"
+                    style={{ color: "#f59e0b", background: "#f59e0b1a", border: "1px solid #f59e0b40" }}>mine</span>
+                )}
                 {p.activated && (
                   <button onClick={() => toggleClaudePlugin(p.id, !p.enabled, activeFolder)}
                     className="ml-auto grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title={p.enabled ? "Disable" : "Enable"}>
@@ -133,12 +144,18 @@ export function PluginsTab() {
         </div>
 
         <div className="glass-panel p-4 self-start">
-          <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Add a custom plugin</div>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Plugin name"
+          <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Author your own plugin</div>
+          <p className="font-mono text-[10px] text-white/45 mb-3 leading-relaxed">
+            Scaffolds a real plugin in <span className="text-white/70">.jarvis-brain/plugins/</span> using the same
+            format Claude Code uses — <span className="text-white/70">skills/</span>, <span className="text-white/70">commands/</span>,
+            <span className="text-white/70"> .mcp.json</span>. Edit the files, hit Activate, and every CLI + API gets it.
+          </p>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-plugin"
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
             className="w-full mb-3 bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 font-mono text-[12px] text-white/90 outline-none focus:border-white/20" />
           <button onClick={submit} className="w-full flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg font-mono text-[11px] uppercase tracking-wider"
             style={{ background: "#22d3ee22", border: "1px solid #22d3ee66", color: "#22d3ee" }}>
-            <Plus className="h-3.5 w-3.5" /> Add
+            <Plus className="h-3.5 w-3.5" /> New plugin
           </button>
         </div>
       </div>

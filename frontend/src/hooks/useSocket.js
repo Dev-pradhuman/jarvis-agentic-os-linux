@@ -124,6 +124,28 @@ export function useSocket() {
     socket.on('plugins_list', (list) => useJarvisStore.getState().setPlugins(list || []));
     socket.on('claude_plugins_list', ({ plugins }) => useJarvisStore.getState().setClaudePlugins(plugins || []));
 
+    // ── Surface backend error/success events that previously had NO listener at
+    // all, so failures (role save, plugin activate, terminal open) were invisible. ──
+    const toast = (kind, title) => (payload) =>
+      useJarvisStore.getState().pushToast(kind, title, payload?.error || payload?.message || '');
+    socket.on('roles_error', toast('error', 'Role not saved'));
+    socket.on('ruflow_error', toast('error', 'Ruflow'));
+    socket.on('cli_command_error', toast('error', 'CLI command'));
+    socket.on('claude_plugin_error', toast('error', 'Plugin'));
+    socket.on('terminal_opened', ({ command }) =>
+      useJarvisStore.getState().pushToast('success', 'Terminal opened', command || ''));
+    socket.on('plugin_scaffolded', ({ id, dir }) =>
+      useJarvisStore.getState().pushToast('success', `Plugin '${id}' created`, `Edit it at ${dir}, then Activate`));
+    socket.on('seed_best_done', ({ mcps, skills }) =>
+      useJarvisStore.getState().pushToast('success', 'Seeded', `${mcps} MCP servers + ${skills} skills`));
+    socket.on('stopped_all', ({ count }) =>
+      useJarvisStore.getState().pushToast('success', 'Kill switch', `Halted ${count} running task(s)`));
+    socket.on('mcp_synced', () =>
+      useJarvisStore.getState().pushToast('success', 'MCP synced', 'All CLI configs updated'));
+    socket.on('remembered', (r) => r?.ok === false
+      ? useJarvisStore.getState().pushToast('error', 'Remember failed', r.error || '')
+      : useJarvisStore.getState().pushToast('success', 'Saved to brain', ''));
+
     // Coder switch confirmation
     socket.on('confirm_coder_switch', ({ originalRequest, coderCli }) => {
       // We will handle this by showing a popup in the UI. For now, dispatch event or handle via state.
@@ -222,6 +244,15 @@ export function toggleMcp(id, enabled, folder) {
   socket?.emit('mcp_toggle', { id, enabled, folder });
 }
 
+/**
+ * Re-push the registry into every CLI's native config. add/remove/toggle already
+ * sync, so this is the manual repair path for when a CLI's config drifts — e.g. you
+ * hand-edited it, or another tool clobbered the managed block.
+ */
+export function syncMcps() {
+  socket?.emit('mcp_sync');
+}
+
 // ── Skills dashboard ──
 export function requestSkills(folder) {
   socket?.emit('skills_request', { folder });
@@ -265,6 +296,10 @@ export function deactivateClaudePlugin(id, folder = '') {
 }
 export function toggleClaudePlugin(id, enabled, folder = '') {
   socket?.emit('claude_plugin_toggle', { id, enabled, folder });
+}
+/** Scaffold one of your own plugins (same format → reaches every CLI + API). */
+export function scaffoldPlugin(name, folder = '') {
+  socket?.emit('claude_plugin_scaffold', { name, folder });
 }
 
 // ── Usage analytics ──
