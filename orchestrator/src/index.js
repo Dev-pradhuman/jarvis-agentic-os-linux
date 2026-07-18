@@ -575,8 +575,12 @@ io.on('connection', (socket) => {
       const providerId = cliId.slice(4);
       const controller = new AbortController();
       activeRuns.set(chatId, { kind: 'api', controller, cliId });
+      // A raw API has no native effort flag, so mirror what cliRunner does for
+      // non-native CLIs and inject it as a hint — otherwise the UI's effort
+      // control would be decorative for API providers.
+      const apiPrompt = effort ? `Reasoning effort: ${effort}.\n\n${augmented}` : augmented;
       result = await runApiChat(
-        providerId, model, augmented,
+        providerId, model, apiPrompt,
         (chunk) => io.emit('chat_stream', { chatId, cliId, chunk }),
         controller.signal,
       );

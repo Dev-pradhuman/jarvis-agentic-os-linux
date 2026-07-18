@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bookmark, Check, Gauge, Mic, Plug, Plus, Send, Sparkles, Square, StopCircle, Terminal, TerminalSquare, X, Zap } from "lucide-react";
+import { Bookmark, Check, ChevronDown, Gauge, Mic, Plug, Plus, Send, Sparkles, Square, StopCircle, Terminal, TerminalSquare, X, Zap } from "lucide-react";
 import { useJarvisStore } from "../store";
 import { enhancePromptRequest, openTerminal, remember, requestChats, requestCliCommands, requestProviderModels, requestRoles, requestRuflow, seedBest, sendChat, setRuflow, stopChat } from "../hooks/useSocket";
 import { createRecorder } from "../lib/sttRecorder";
@@ -194,6 +194,116 @@ function RememberBtn({ folder, text }: { folder: string; text: string }) {
   );
 }
 
+/**
+ * Searchable model switcher. A plain <select> is unusable once a provider exposes
+ * a large catalog (BluesMinds ships 132), so this filters as you type.
+ */
+function ModelPicker({
+  models, value, onChange, color, placeholder,
+}: { models: any[]; value: string; onChange: (id: string) => void; color: string; placeholder: string }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onEsc);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onEsc); };
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return models;
+    return models.filter((m: any) => `${m.label ?? ""} ${m.id}`.toLowerCase().includes(s));
+  }, [models, q]);
+
+  const current = models.find((m: any) => m.id === value);
+  const shown = current?.label ?? value ?? "";
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => { setOpen((o) => !o); setQ(""); }}
+        title={value || placeholder}
+        className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.08] hover:border-white/20 rounded-md px-1.5 py-1 font-mono text-[10px] text-white/85 max-w-[160px] transition-colors"
+      >
+        <span className="truncate">{shown || placeholder}</span>
+        <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-[290px] glass-panel p-1.5">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="search models…"
+            className="w-full bg-white/[0.03] border border-white/[0.08] focus:border-white/20 rounded px-2 py-1 font-mono text-[11px] text-white/90 outline-none"
+          />
+          <div className="max-h-[240px] overflow-y-auto mt-1" style={{ scrollbarWidth: "none" }}>
+            {filtered.length === 0 && (
+              <div className="px-2 py-3 text-center font-mono text-[10px] text-muted-foreground">no match</div>
+            )}
+            {filtered.map((m: any) => {
+              const active = m.id === value;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => { onChange(m.id); setOpen(false); setQ(""); }}
+                  title={m.id}
+                  className="w-full text-left px-2 py-1.5 rounded font-mono text-[11px] truncate hover:bg-white/[0.05] transition-colors"
+                  style={active ? { color, background: `${color}1a` } : { color: "#c9c9cc" }}
+                >
+                  {m.label ?? m.id}
+                </button>
+              );
+            })}
+          </div>
+          <div className="px-2 pt-1 font-mono text-[9px] text-muted-foreground">
+            {filtered.length === models.length ? `${models.length} models` : `${filtered.length} of ${models.length}`}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Effort switcher. Real for every agent: CLIs with a native flag get it passed
+ * through (claude --effort, codex model_reasoning_effort), everything else — the
+ * other CLIs and API providers — has it injected as a prompt hint by the backend.
+ */
+function EffortPicker({
+  value, onChange, options, color, native,
+}: { value: string; onChange: (e: string) => void; options: string[]; color: string; native: boolean }) {
+  return (
+    <div
+      className="flex items-center rounded-md overflow-hidden border border-white/[0.08] shrink-0"
+      title={`Reasoning effort: ${value}${native ? " (native flag)" : " (prompt hint)"}`}
+    >
+      {options.map((o) => {
+        const active = o === value;
+        return (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            title={o}
+            className="px-1.5 py-1 font-mono text-[9px] uppercase transition-colors"
+            style={active ? { background: `${color}22`, color } : { color: "#87878a" }}
+          >
+            {o[0]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }) {
   const clis = useJarvisStore((s) => s.clis);
   const providers = useJarvisStore((s) => s.providers);
@@ -336,11 +446,22 @@ function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }
             <TerminalSquare className="h-3 w-3" /> {showTerminal ? "chat" : "term"}
           </button>
         )}
-        <select value={model} onChange={(e) => setModel(e.target.value)}
-          className={`${isApi ? "ml-auto " : ""}bg-white/[0.03] border border-white/[0.08] rounded-md px-1.5 py-1 font-mono text-[10px] text-white/85 outline-none max-w-[150px]`}>
-          {models.length === 0 && <option className="bg-[#0b0b0f]">{isApi ? "discovering…" : "—"}</option>}
-          {models.map((m: any) => <option key={m.id} value={m.id} className="bg-[#0b0b0f]">{m.label}</option>)}
-        </select>
+        <div className={`${isApi ? "ml-auto " : ""}flex items-center gap-1.5`}>
+          <EffortPicker
+            value={effort}
+            onChange={setEffort}
+            options={cli?.efforts ?? ["low", "medium", "high"]}
+            color={color}
+            native={!!cli?.nativeEffort}
+          />
+          <ModelPicker
+            models={models}
+            value={model}
+            onChange={setModel}
+            color={color}
+            placeholder={isApi ? "discovering…" : "—"}
+          />
+        </div>
         <button onClick={onClose} className="grid place-items-center h-6 w-6 rounded hover:bg-white/[0.05]" title="Close tile">
           <X className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
