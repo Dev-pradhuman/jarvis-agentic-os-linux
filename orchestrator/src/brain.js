@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mcpCatalog } from './mcp.js';
 import { SKILLS } from './skills.js';
+import { listSkills } from './skillsManager.js';
 import { isRuflowEnabled, getRuflowInjection, recordToMemoryBank } from './ruflow.js';
 import { analyzeProject } from './projectAnalyzer.js';
 
@@ -401,7 +402,16 @@ export function getContext(folder) {
   const folderRecent = ruflowOn ? '' : readRecall(folderLog(folder), FOLDER_RECALL).map(compact).join('\n');
   const globalRecent = ruflowOn ? '' : readRecall(GLOBAL_LOG, GLOBAL_RECALL).map(compact).join('\n');
   const mcpTools = mcpCatalog();
-  const skillsCatalog = Object.values(SKILLS).map((s) => `- ${s.id}: ${s.label}`).join('\n');
+  // The REAL skill store (SOPs on disk incl. everything activated from Claude Code
+  // plugins), not just the 5 voice-router built-ins — otherwise every skill you add
+  // is invisible to the agents. Disabled skills are omitted; ruflow trims the list
+  // to the router-registered ones to stay token-lean.
+  const skillsCatalog = (() => {
+    let list = listSkills(folder).filter((s) => s.enabled);
+    if (ruflowOn) list = list.filter((s) => s.registered);
+    if (!list.length) return '';
+    return list.map((s) => `- ${s.id}: ${s.label}`).join('\n');
+  })();
 
   return [
     '===== JARVIS BRAIN (shared cross-CLI memory — use it, do not repeat verbatim) =====',
@@ -413,7 +423,7 @@ export function getContext(folder) {
     folderRecent ? `# Recent in this project (all CLIs)\n${folderRecent}` : '',
     globalRecent ? `# Recent across all projects (all CLIs)\n${globalRecent}` : '',
     mcpTools ? `# MCP servers available (tools you can use)\n${mcpTools}` : '',
-    `# Jarvis skills available (SOPs — describe to run one)\n${skillsCatalog}`,
+    skillsCatalog ? `# Jarvis skills available (SOPs — describe to run one)\n${skillsCatalog}` : '',
     '# INSTRUCTION: Always provide concise and terse responses unless explicitly asked for detail.',
     '===== END BRAIN =====',
   ]
