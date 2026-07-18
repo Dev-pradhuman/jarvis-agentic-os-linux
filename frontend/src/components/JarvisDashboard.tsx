@@ -7,8 +7,10 @@ import {
   BrainCircuit,
   Calendar,
   FileText,
+  FolderGit2,
   Inbox,
   Mail,
+  MessagesSquare,
   Mic,
   NotebookPen,
   Radio,
@@ -408,6 +410,63 @@ function LeftPanel() {
 // CENTER STAGE
 // ─────────────────────────────────────────────────────────────
 
+// When the feed is idle, turn the dead space into a real launchpad: open a chat
+// with any detected CLI, or jump straight into a project's sub-brain. Real data
+// only (detected CLIs + folders) — no invented rows.
+function IdleLaunchpad() {
+  const clis = useJarvisStore((s) => s.clis);
+  const folders = useJarvisStore((s) => s.folders);
+  const addPane = useJarvisStore((s) => s.addPane);
+  const setActiveFolder = useJarvisStore((s) => s.setActiveFolder);
+  const setView = useJarvisStore((s) => s.setView);
+  const available = clis.filter((c: any) => c.available);
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-7 px-6">
+      <div className="w-full max-w-[560px]">
+        <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-muted-foreground mb-2.5">Quick launch</div>
+        <div className="flex flex-wrap gap-2">
+          {available.length === 0 && (
+            <span className="font-mono text-[11px] text-muted-foreground">No CLIs detected.</span>
+          )}
+          {available.map((c: any) => (
+            <button
+              key={c.id}
+              onClick={() => addPane(c.id)}
+              title={`Open a chat with ${c.label}`}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/[0.08] hover:border-white/20 hover:bg-white/[0.03] transition-colors"
+            >
+              <MessagesSquare className="h-3.5 w-3.5" style={{ color: "#a78bfa" }} />
+              <span className="font-sans text-[12px] text-white/85">{c.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {folders.length > 0 && (
+        <div className="w-full max-w-[560px]">
+          <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-muted-foreground mb-2.5">Jump into a project</div>
+          <div className="flex flex-wrap gap-2">
+            {folders.slice(0, 12).map((f: string) => (
+              <button
+                key={f}
+                onClick={() => { setActiveFolder(f); setView("chats"); }}
+                title={`Open ${f} chats`}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/20 hover:bg-white/[0.03] transition-colors"
+              >
+                <FolderGit2 className="h-3 w-3 text-muted-foreground" />
+                <span className="font-mono text-[11px] text-white/75">{f}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="font-mono text-[10px] text-muted-foreground/50">waiting for agent activity…</div>
+    </div>
+  );
+}
+
 function TerminalFeed() {
   // Real orchestrator stdout / router events, streamed via WebSocket.
   const liveLogs = useJarvisStore((s) => s.historicalLogs);
@@ -453,11 +512,13 @@ function TerminalFeed() {
               </motion.div>
             ))}
           </AnimatePresence>
+        ) : connected ? (
+          // Idle but connected: a real launchpad instead of dead space. (This used to
+          // render a fabricated <MockFeed/> — invented log lines presented as real.)
+          <IdleLaunchpad />
         ) : (
-          // Honest empty state. This used to render a fabricated <MockFeed/> while the
-          // header said "streaming" — invented log lines presented as real output.
           <div className="h-full grid place-items-center font-mono text-[11px] text-muted-foreground">
-            {connected ? "waiting for agent activity…" : "orchestrator offline — start it on :3030"}
+            orchestrator offline — start it on :3030
           </div>
         )}
       </div>

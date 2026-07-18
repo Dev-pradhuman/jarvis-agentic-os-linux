@@ -63,7 +63,6 @@ function TabBar() {
           <BrainCircuit className="h-3.5 w-3.5 text-white" />
         </span>
         <span className="font-mono text-[12px] tracking-[0.28em] text-white/95">JARVIS.OS</span>
-        <span className="font-mono text-[9px] tracking-[0.18em] text-muted-foreground hidden md:inline">V1.4 · COMMAND DECK</span>
       </div>
 
       <div className="flex items-center gap-1.5 relative">
