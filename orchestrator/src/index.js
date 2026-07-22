@@ -51,7 +51,7 @@ import { randomUUID } from 'node:crypto';
 import { localOrigins, projectPath } from './security.js';
 import { getHealth, getReviewEvidence } from './operations.js';
 import { decideApproval, listApprovals, requestApproval } from './approvals.js';
-import { ROUTING_PROFILES, createMission, listMissions, updateMission } from './missions.js';
+import { ROUTING_PROFILES, completeMissionStage, createMission, getMission, listMissions, updateMission } from './missions.js';
 import { capabilityAudit } from './capabilities.js';
 import { saveSetup, setupStatus } from './setup.js';
 
@@ -477,7 +477,28 @@ io.on('connection', (socket) => {
   socket.on('operations_health_request', async () => socket.emit('operations_health', await getHealth(getRegistry(), listProviders(), listMcp())));
   socket.on('operations_review_request', ({ folder } = {}) => { try { socket.emit('operations_review', getReviewEvidence(ROOT, folder)); } catch (e) { socket.emit('operations_review', { available: false, error: e.message }); } });
   socket.on('mission_list_request', ({ folder } = {}) => socket.emit('mission_list', listMissions(folder)));
-  socket.on('mission_create', ({ title, folder } = {}) => { try { const item = createMission({ title, folder }); io.emit('mission_list', listMissions(folder)); socket.emit('mission_created', item); } catch (e) { socket.emit('mission_error', { error: e.message }); } });
+  function launchAutomaticMissionStage(mission) {
+    const stages = ['Research', 'Plan', 'Implement', 'Review', 'Test'];
+    const stageName = stages[mission.stage];
+    const profile = ROUTING_PROFILES[stageName];
+    const available = [...getRegistry().filter((item) => item.available).map((item) => item.id), ...listProviders().map((item) => `api:${item.id}`)];
+    const cliId = profile && (available.includes(profile.preferred) ? profile.preferred : available.includes(profile.fallback) ? profile.fallback : '');
+    if (!cliId) {
+      updateMission(mission.id, { status: 'blocked', note: `Automatic handoff paused: no available agent for ${stageName}.` });
+      io.emit('mission_list', listMissions(mission.folder || ''));
+      return;
+    }
+    updateMission(mission.id, { status: 'running', assigned: cliId, note: `${stageName} automatically assigned to ${cliId}` });
+    io.emit('mission_list', listMissions(mission.folder || ''));
+    const current = getMission(mission.id);
+    const handoff = current?.history.slice(-3).map((item) => item.text).join('\n') || '';
+    queueMicrotask(() => dispatchChat({
+      cliId, model: '', effort: stageName === 'Implement' ? 'high' : 'medium', folder: mission.folder,
+      missionId: mission.id, missionStage: stageName, confirmedCoding: true,
+      prompt: `[Mission: ${mission.title}] You own the ${stageName} stage. ${handoff ? `Continue from this verified handoff:\n${handoff}\n\n` : ''}Read the shared brain, do this stage, record decisions and hand off a concise result to the next stage.`,
+    }));
+  }
+  socket.on('mission_create', ({ title, folder, mode } = {}) => { try { const item = createMission({ title, folder, mode }); io.emit('mission_list', listMissions(folder)); socket.emit('mission_created', item); if (item.mode === 'automatic') launchAutomaticMissionStage(item); } catch (e) { socket.emit('mission_error', { error: e.message }); } });
   socket.on('mission_update', ({ id, patch, folder } = {}) => { try { updateMission(id, patch); io.emit('mission_list', listMissions(folder)); } catch (e) { socket.emit('mission_error', { error: e.message }); } });
   socket.on('capability_audit_request', ({ folder } = {}) => socket.emit('capability_audit', capabilityAudit(folder)));
 
@@ -577,7 +598,7 @@ io.on('connection', (socket) => {
 
   // ── Chat: dispatch to either a real CLI (spawn in the project folder) or a
   // custom API provider (OpenAI-compatible HTTP), both with the shared brain. ──
-  socket.on('chat_send', async ({ cliId, model, effort, folder, prompt, confirmedCoding, missionId, missionStage }) => {
+  async function dispatchChat({ cliId, model, effort, folder, prompt, confirmedCoding, missionId, missionStage }) {
     const roles = getRoles(folder);
     const coderConfig = roles.coder;
     const CODER_CLI = (coderConfig.kind === 'api' || coderConfig.kind === 'provider') 
@@ -665,8 +686,12 @@ io.on('connection', (socket) => {
     if (missionId) {
       try {
         const evidence = getReviewEvidence(ROOT, folder || '');
-        updateMission(missionId, { status: status === 'success' ? 'ready' : 'blocked', note: `${missionStage || 'Stage'} ${status}. ${evidence.diff || 'No git diff.'}` });
+        const completion = completeMissionStage(missionId, missionStage, status, `${result.output || ''}\n${evidence.diff || ''}`);
         io.emit('mission_list', listMissions(folder || ''));
+        if (completion.advanced) {
+          const nextMission = getMission(missionId);
+          if (nextMission) launchAutomaticMissionStage(nextMission);
+        }
       } catch (e) { console.error('[mission] completion update failed:', e.message); }
     }
     // Real token accounting so the Usage tab reflects this exchange.
@@ -683,7 +708,8 @@ io.on('connection', (socket) => {
         io.emit('resource_requested', JSON.parse(match[1]));
       } catch (e) {}
     }
-  });
+  }
+  socket.on('chat_send', dispatchChat);
 
   socket.on('chats_history', ({ folder } = {}) => {
     socket.emit('chats_history_result', { folder: folder || '', chats: listChats(folder) });

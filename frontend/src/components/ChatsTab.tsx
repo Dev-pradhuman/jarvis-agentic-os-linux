@@ -199,8 +199,8 @@ function RememberBtn({ folder, text }: { folder: string; text: string }) {
  * a large catalog (BluesMinds ships 132), so this filters as you type.
  */
 function ModelPicker({
-  models, value, onChange, color, placeholder,
-}: { models: any[]; value: string; onChange: (id: string) => void; color: string; placeholder: string }) {
+  models, value, onChange, color, placeholder, allowAuto = false,
+}: { models: any[]; value: string; onChange: (id: string) => void; color: string; placeholder: string; allowAuto?: boolean }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -222,7 +222,8 @@ function ModelPicker({
     return models.filter((m: any) => `${m.label ?? ""} ${m.id}`.toLowerCase().includes(s));
   }, [models, q]);
 
-  const current = models.find((m: any) => m.id === value);
+  const selectableModels = allowAuto ? [{ id: "", label: "Auto · CLI default" }, ...models] : models;
+  const current = selectableModels.find((m: any) => m.id === value);
   const shown = current?.label ?? value ?? "";
 
   return (
@@ -249,7 +250,7 @@ function ModelPicker({
             {filtered.length === 0 && (
               <div className="px-2 py-3 text-center font-mono text-[10px] text-muted-foreground">no match</div>
             )}
-            {filtered.map((m: any) => {
+            {(allowAuto && !q.trim() ? selectableModels : filtered).map((m: any) => {
               const active = m.id === value;
               return (
                 <button
@@ -265,7 +266,7 @@ function ModelPicker({
             })}
           </div>
           <div className="px-2 pt-1 font-mono text-[9px] text-muted-foreground">
-            {filtered.length === models.length ? `${models.length} models` : `${filtered.length} of ${models.length}`}
+            {allowAuto ? `${models.length} selectable models + auto` : (filtered.length === models.length ? `${models.length} models` : `${filtered.length} of ${models.length}`)}
           </div>
         </div>
       )}
@@ -293,10 +294,10 @@ function EffortPicker({
             key={o}
             onClick={() => onChange(o)}
             title={o}
-            className="px-1.5 py-1 font-mono text-[9px] uppercase transition-colors"
+            className="px-2 py-1 font-mono text-[9px] uppercase transition-colors"
             style={active ? { background: `${color}22`, color } : { color: "#87878a" }}
           >
-            {o[0]}
+            {o === 'medium' ? 'Med' : o}
           </button>
         );
       })}
@@ -375,8 +376,8 @@ function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }
     if (isApi && provider && !providerModels[provider.id]) requestProviderModels(provider.id);
   }, [isApi, provider, providerModels]);
   useEffect(() => {
-    if (models.length && !models.some((m: any) => m.id === model)) setModel(models[0].id);
-  }, [models, model]);
+    if (models.length && !models.some((m: any) => m.id === model)) setModel(isApi ? models[0].id : '');
+  }, [models, model, isApi]);
 
   // This pane's slice of the conversation: its agent, current folder.
   const messages: ChatEntry[] = useMemo(() => {
@@ -436,15 +437,10 @@ function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }
           </button>
         )}
         {!isApi && (
-          <button
-            onClick={() => setShowTerminal((v) => !v)}
-            title={showTerminal ? "Switch to piped chat" : "Open a live interactive terminal for this CLI"}
-            className="ml-auto flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded"
-            style={showTerminal
-              ? { color, background: `${color}1a`, border: `1px solid ${color}55` }
-              : { color: "#9ca3af", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-            <TerminalSquare className="h-3 w-3" /> {showTerminal ? "chat" : "term"}
-          </button>
+          <div className="ml-auto flex items-center overflow-hidden rounded-md border border-white/[0.08]" title="Choose whether this CLI runs in Jarvis UI or its interactive terminal">
+            <button onClick={() => setShowTerminal(false)} className="px-2 py-1 font-mono text-[9px] uppercase" style={!showTerminal ? { background: `${color}22`, color } : { color: '#87878a' }}>UI</button>
+            <button onClick={() => setShowTerminal(true)} className="flex items-center gap-1 px-2 py-1 font-mono text-[9px] uppercase" style={showTerminal ? { background: `${color}22`, color } : { color: '#87878a' }}><TerminalSquare className="h-3 w-3" />Terminal</button>
+          </div>
         )}
         <div className={`${isApi ? "ml-auto " : ""}flex items-center gap-1.5`}>
           <EffortPicker
@@ -459,6 +455,7 @@ function ChatPane({ agentId, onClose }: { agentId: string; onClose: () => void }
             value={model}
             onChange={setModel}
             color={color}
+            allowAuto={!isApi}
             placeholder={isApi ? "discovering…" : "—"}
           />
         </div>

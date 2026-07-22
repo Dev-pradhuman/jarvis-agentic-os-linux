@@ -14,5 +14,35 @@ export const ROUTING_PROFILES = {
   Test: { preferred: 'codex', fallback: 'gemini', reason: 'execution and debugging' },
 };
 export function listMissions(folder = '') { return load().filter((x) => !folder || x.folder === folder).sort((a,b) => b.updatedAt - a.updatedAt); }
-export function createMission({ title, folder = '' }) { const now = Date.now(); const item = { id: randomUUID(), title: String(title || '').trim(), folder, stage: 0, status: 'ready', history: [{ at: now, type: 'created', text: 'Mission created' }], createdAt: now, updatedAt: now }; if (!item.title) throw new Error('Mission title is required.'); const all = load(); all.push(item); save(all); return item; }
+export function getMission(id) { return load().find((x) => x.id === id) || null; }
+export function createMission({ title, folder = '', mode = 'manual' }) { const now = Date.now(); const item = { id: randomUUID(), title: String(title || '').trim(), folder, mode: mode === 'automatic' ? 'automatic' : 'manual', stage: 0, status: 'ready', history: [{ at: now, type: 'created', text: 'Mission created' }], createdAt: now, updatedAt: now }; if (!item.title) throw new Error('Mission title is required.'); const all = load(); all.push(item); save(all); return item; }
 export function updateMission(id, patch = {}) { const all = load(); const item = all.find((x) => x.id === id); if (!item) throw new Error('Mission not found.'); Object.assign(item, patch, { updatedAt: Date.now() }); item.history.push({ at: Date.now(), type: patch.status || 'updated', text: patch.note || `Stage: ${STAGES[item.stage]}` }); save(all); return item; }
+
+/** Record a stage result and, in automatic mode, make the next stage ready. */
+export function completeMissionStage(id, stageName, status, output = '') {
+  const all = load();
+  const item = all.find((x) => x.id === id);
+  if (!item) throw new Error('Mission not found.');
+  const now = Date.now();
+  const summary = String(output || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
+  const expectedStage = STAGES[item.stage];
+  if (stageName && stageName !== expectedStage) return { mission: item, advanced: false, ignored: true };
+  if (status !== 'success') {
+    item.status = 'blocked';
+    item.history.push({ at: now, type: 'blocked', text: `${expectedStage} ${status}. ${summary || 'Review and retry this stage.'}` });
+  } else if (item.mode === 'automatic' && item.stage < STAGES.length - 1) {
+    const next = STAGES[item.stage + 1];
+    item.stage += 1;
+    item.status = 'ready';
+    item.history.push({ at: now, type: 'handoff', text: `${expectedStage} completed. Automatic handoff to ${next}. ${summary}`.trim() });
+  } else if (item.mode === 'automatic') {
+    item.status = 'done';
+    item.history.push({ at: now, type: 'done', text: `Test passed. Mission completed. ${summary}`.trim() });
+  } else {
+    item.status = 'ready';
+    item.history.push({ at: now, type: 'success', text: `${expectedStage} completed. ${summary}`.trim() });
+  }
+  item.updatedAt = now;
+  save(all);
+  return { mission: item, advanced: status === 'success' && item.mode === 'automatic' && item.status === 'ready' };
+}

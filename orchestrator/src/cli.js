@@ -42,7 +42,9 @@ const DEFS = {
     // One-click terminal command (opens a real console; edit in the CLI Commands modal).
     setupCmd: 'claude --dangerously-skip-permissions',
     nativeEffort: true,
-    efforts: ['low', 'medium', 'high'],
+    // Claude Code supports deeper adaptive-reasoning levels. Individual Claude
+    // models may cap an unsupported choice to their nearest supported level.
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
     models: [
       { id: 'claude-opus-4-8', label: 'Opus 4.8' },
       { id: 'claude-sonnet-5', label: 'Sonnet 5' },
