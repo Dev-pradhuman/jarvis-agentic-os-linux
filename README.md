@@ -1,132 +1,67 @@
-# Jarvis — Local-First Agentic OS Dashboard
+# Jarvis Agentic OS — Linux Edition
 
-A terminal-inspired graphical + vocal layer over Claude Code and local automation.
-Everything binds to loopback by default. It is intentionally powerful: agents can execute tools in the selected project, so do not expose the orchestrator port without adding authentication and a restrictive origin policy.
+A local-first desktop workspace for coordinating Claude Code, Codex, Gemini, Perplexity/API providers, MCP servers, project memory, and agent missions. Everything binds to your machine’s loopback interface by default.
 
-![Jarvis Command Center](docs/dashboard.png)
+> **Linux edition.** On Windows, use [jarvis-agentic-os](https://github.com/Dev-pradhuman/jarvis-agentic-os).
 
-Voice in (local Whisper STT) → 3-tier intent router → headless `claude -p` skill
-execution over the Obsidian vault → voice out (local Kokoro TTS), with an
-audio-reactive 3D core and live system telemetry — all streamed to the UI over
-WebSockets.
+## Start in three steps
 
-> **Windows edition.** For Linux, use [jarvis-agentic-os-linux](https://github.com/Dev-pradhuman/jarvis-agentic-os-linux).
-
-## Services
-
-| Service       | Port  | Runtime            | Folder          |
-|---------------|-------|--------------------|-----------------|
-| Frontend UI   | 5173  | React 19 + Vite    | `frontend/`     |
-| Orchestrator  | 3030  | Node.js + Express  | `orchestrator/` |
-| STT Engine    | 8000  | Python + FastAPI   | `ml/stt_service.py` |
-| TTS Engine    | 8001  | Python + FastAPI   | `ml/tts_service.py` |
-| Data Vault    | fs    | Obsidian markdown  | `vault/Jarvis_Vault/` |
-
-## This machine
-
-- **No NVIDIA GPU / CUDA** (Intel Arc). ML services are configured for **CPU**
-  (`faster-whisper` → `device="cpu"`, `compute_type="int8"`; Kokoro CPU ONNX).
-  Flip the `JARVIS_DEVICE` env var to `cuda` if you move to an NVIDIA box.
-
-## Quick start (Windows)
-
-### One command
-
-Install Node.js 20+ and your preferred agent CLIs, then double-click `start.bat` (or run it from Command Prompt). It installs the two Node workspaces when needed and opens Jarvis at `http://localhost:5173`.
-
-On first launch, choose the existing folder that holds your projects. Jarvis stores that local choice in an ignored `.env` file and can create one shared `.jarvis-brain` for every project.
-
-### Run services separately
+1. Install Node.js 20+ and npm. Install whichever agent CLIs you want to use (for example `claude`, `codex`, or `gemini`).
+2. Clone this repository, then run:
 
 ```bash
-# 1. ML microservices
-cd ml && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
-python stt_service.py   # :8000
-python tts_service.py   # :8001
-
-# 2. Orchestrator
-cd orchestrator && npm install && npm run dev   # :3030
-
-# 3. Frontend
-cd frontend && npm install && npm run dev        # :5173
+git clone https://github.com/Dev-pradhuman/jarvis-agentic-os-linux.git
+cd jarvis-agentic-os-linux
+chmod +x start.sh
+./start.sh
 ```
+
+3. Open `http://127.0.0.1:5173` if your browser does not open automatically. Complete the first-run setup: choose the folder that contains your projects and decide whether to create a shared Obsidian Brain.
+
+`start.sh` defaults to `~/projects`. To use another location before first launch:
+
+```bash
+JARVIS_PROJECTS_ROOT="$HOME/code" ./start.sh
+```
+
+The launcher installs Node dependencies on first run, starts the orchestrator on `127.0.0.1:3030`, starts the UI on `127.0.0.1:5173`, and stops both when you press Ctrl+C.
 
 ## Choose the right edition
 
 | Your computer | Repository | Start command |
 |---|---|---|
-| Windows | This repository | `start.bat` |
-| Linux | [jarvis-agentic-os-linux](https://github.com/Dev-pradhuman/jarvis-agentic-os-linux) | `./start.sh` |
+| Linux | This repository | `./start.sh` |
+| Windows | [jarvis-agentic-os](https://github.com/Dev-pradhuman/jarvis-agentic-os) | `start.bat` |
 
-Both editions have the same local-first Jarvis UI, shared Brain, mission workflow, CLI integrations, and first-run project-folder setup. Clone the edition matching the machine that will run the local CLIs.
+Both editions include the same Jarvis features: multi-CLI chat, a shared Brain, skills and MCP configuration, approval queue, setup health, usage reporting, and Manual/Automatic missions.
 
-## Build order
+## How to use it
 
-See the master spec. Current status: **scaffold complete**, service logic stubbed.
+- **Chats:** Open a CLI tile, choose **UI** for Jarvis-managed prompts or **Terminal** for the CLI’s native interactive session.
+- **Models and effort:** Use `Auto · CLI default` or choose a model. Claude offers Low/Med/High/Xhigh/Max; Codex offers Low/Med/High. Other providers expose their supported effort range.
+- **Shared Brain:** Jarvis writes its local memory under `<projects-root>/.jarvis-brain/` and adds relevant context to each managed run.
+- **Missions:** In Operations, create a mission. Manual mode lets you run each stage; Automatic mode advances Research → Plan → Implement → Review → Test after successful stages and pauses on a failure or unavailable agent.
 
-1. [x] Repo structure + manifests for all four services
-2. [x] Python FastAPI STT/TTS with hot-loaded models (round-trip verified)
-3. [x] Node orchestrator: WS hub + 3-tier router (Tier 1 verified) + skill wrapper + run_skill
-4. [x] Obsidian vault structure + Skill SOP files
-5. [x] React shell: grid, Zustand store, glass panels (ported from Lovable)
-6. [x] 3D audio-reactive core sphere (renders in-browser)
-7. [x] Framer Motion + Live Terminal Feed (wired to real WS logs, mock fallback)
-8. [x] End-to-end wiring:
-       - Skill Matrix → orchestrator run_skill → claude -p → skill_state/terminal to UI (verified)
-       - Voice out: skill completion → 🔊 summary → TTS (:8001) → audio playback (verified: POST 200)
-       - Voice in: HEY JARVIS mic → MediaRecorder → STT (:8000) → router (wired; mic needs a
-         manual permission grant, so not covered by headless automation)
+## Optional voice services
 
-## Running the app (dev)
+Voice features are optional. To run local STT/TTS services, create a Python virtual environment and install the ML requirements:
 
-- ML:            `ml/.venv/Scripts/python ml/stt_service.py` and `... tts_service.py`
-- Orchestrator:  `npm --prefix orchestrator run dev`   (:3030)
-- Frontend:      `npm --prefix frontend run dev`        (:5173)
+```bash
+cd ml
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python stt_service.py &
+python tts_service.py &
+```
 
-Frontend UI is ported from the Lovable "Jarvis Command Center" project
-(editor: lovable.dev/projects/3f18d5dc-8e90-43c6-b91b-e633695575ff).
+## Development and verification
 
-## Multi-CLI chat + shared Brain
+```bash
+npm --prefix orchestrator test
+npm --prefix frontend run build
+```
 
-The **All Chats** tab runs your real agent CLIs and shares one memory across them.
+## Security note
 
-- **CLIs** (auto-detected): Claude Code, 9Router-via-Claude, OpenCode, Gemini, Codex (Antigravity shown
-  disabled until installed). Pick a CLI → model → effort, type a task, and it spawns
-  the *real* CLI headlessly in the selected project folder and streams the output.
-  - Effort maps to a native flag where supported (`claude --effort`,
-    `codex -c model_reasoning_effort=`); otherwise it's injected as a prompt hint.
-- **The Brain** lives at `C:\Users\Pradhuman\projects\.jarvis-brain\`:
-  - `BRAIN.md` — main brain (shared by every CLI and folder)
-  - `folders/<name>/BRAIN.md` — per-folder sub-brain
-  - `chats.jsonl` (global) + `folders/<name>/chats.jsonl` — every exchange, all CLIs
-  - Before each run the main brain + the folder sub-brain + recent conversation are
-    prepended to the prompt, so all CLIs share context.
-- Choosing a folder in the top bar ("Working in …") jumps to that sub-brain's
-  All Chats view. Override the root with `JARVIS_PROJECTS_ROOT`.
-
-> Note: these CLIs run as autonomous agents (e.g. `gemini --approval-mode yolo`,
-> `codex exec`) with real file/system access in the chosen folder.
-
-## Live data sources (no mock)
-
-The orchestrator broadcasts a `state_update` every 3s (and on connect). Panels bind
-to it, falling back to demo values only when the socket is offline.
-
-| Panel              | Real source                                                        |
-|--------------------|--------------------------------------------------------------------|
-| Vitals · CONTEXT   | total vault content size (≈ tokens = bytes/4)                      |
-| Vitals · MEMORY    | orchestrator process RSS                                           |
-| Vitals · AGENTS    | skills currently executing                                         |
-| Vitals · LATENCY   | measured event-loop lag                                            |
-| Claude Tokens      | cumulative tokens processed by skill runs this session (est.)      |
-| Current Directives | `vault/99_System/directives.md`  (format: `- [P0] <title>`)       |
-| Recent Documents   | most-recently-modified files in the vault                         |
-| Today · Calendar   | `vault/99_System/calendar.json`  (edit to change events)          |
-| Live Feed          | real `claude -p` stdout streamed over WebSocket                   |
-
-Note: token counts are estimated from real I/O byte counts (bytes/4), not the
-provider's exact usage meter. Calendar/directives are local files (no Google OAuth).
-
-## Recommended multi-agent workflow
-
-Every completed exchange is written to the shared Brain and injected into every future agent run for that project. Use the same active folder for a task, and assign roles deliberately: Claude for architecture/review, Codex for implementation and tests, Gemini for large-context exploration, and Perplexity through its API provider for web research. 9Router is separate from Claude Pro: select **9Router · Claude**, set `ROUTER9_API_KEY` in the orchestrator environment, and use its local dashboard key; the normal Claude tile continues to use your Claude Pro authentication. 9Router documents its local OpenAI-compatible endpoint as `http://127.0.0.1:20128/v1`.
+Jarvis deliberately runs selected CLIs with broad tool permissions inside the project folder you choose. Keep the services bound to localhost, use a dedicated projects directory, and do not expose the orchestrator port to a network without adding authentication.
