@@ -10,6 +10,8 @@ execution over the Obsidian vault → voice out (local Kokoro TTS), with an
 audio-reactive 3D core and live system telemetry — all streamed to the UI over
 WebSockets.
 
+> **Windows edition.** For Linux, use [jarvis-agentic-os-linux](https://github.com/Dev-pradhuman/jarvis-agentic-os-linux).
+
 ## Services
 
 | Service       | Port  | Runtime            | Folder          |
@@ -26,7 +28,15 @@ WebSockets.
   (`faster-whisper` → `device="cpu"`, `compute_type="int8"`; Kokoro CPU ONNX).
   Flip the `JARVIS_DEVICE` env var to `cuda` if you move to an NVIDIA box.
 
-## Quick start (after scaffold is fleshed out)
+## Quick start (Windows)
+
+### One command
+
+Install Node.js 20+ and your preferred agent CLIs, then double-click `start.bat` (or run it from Command Prompt). It installs the two Node workspaces when needed and opens Jarvis at `http://localhost:5173`.
+
+On first launch, choose the existing folder that holds your projects. Jarvis stores that local choice in an ignored `.env` file and can create one shared `.jarvis-brain` for every project.
+
+### Run services separately
 
 ```bash
 # 1. ML microservices
@@ -40,6 +50,15 @@ cd orchestrator && npm install && npm run dev   # :3030
 # 3. Frontend
 cd frontend && npm install && npm run dev        # :5173
 ```
+
+## Choose the right edition
+
+| Your computer | Repository | Start command |
+|---|---|---|
+| Windows | This repository | `start.bat` |
+| Linux | [jarvis-agentic-os-linux](https://github.com/Dev-pradhuman/jarvis-agentic-os-linux) | `./start.sh` |
+
+Both editions have the same local-first Jarvis UI, shared Brain, mission workflow, CLI integrations, and first-run project-folder setup. Clone the edition matching the machine that will run the local CLIs.
 
 ## Build order
 
